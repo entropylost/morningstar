@@ -1,0 +1,43 @@
+[package]
+name = "fracture"
+version = "0.1.0"
+edition = "2021"
+default-run = "fracture"
+
+[dependencies]
+nalgebra = { version = "0.33.0", features = [
+    "convert-glam028",
+    "convert-glam027",
+] }
+amida = { path = "../amida" }
+color-eyre = "0.6.2"
+sefirot = { path = "../sefirot/sefirot", features = ["bevy"] }
+sefirot_grid = { path = "../sefirot/sefirot_grid" }
+bevy_sefirot = { path = "../sefirot/bevy_sefirot" }
+bevy_egui = "0.28.0"
+egui = "0.28.1"
+bevy_flycam = "0.14.1"
+serde = { version = "1.0.204", features = ["derive"] }
+ron = "0.8.1"
+
+
+[dependencies.bevy]
+version = "0.14.1"
+
+[dependencies.luisa_compute]
+git = "https://github.com/LuisaGroup/luisa-compute-rs"
+branch = "main"
+features = ["nalgebra", "glam"]
+
+[features]
+default = ["dylib"]
+dylib = ["bevy/dynamic_linking"]
+timed = ["bevy_sefirot/trace"]
+debug = ["bevy_sefirot/debug"]
+trace = ["bevy/trace_chrome", "bevy_sefirot/trace"]
+
+[profile.dev.package.'*']
+opt-level = 3
+
+[patch.'https://github.com/LuisaGroup/luisa-compute-rs']
+luisa_compute = { git = "https://github.com/iMplode-nZ/luisa-compute-rs" }
