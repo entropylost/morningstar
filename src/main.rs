@@ -187,16 +187,12 @@ fn neighbors(
 ) {
     let size = constants.grid_size;
     let scale = constants.grid_scale;
-    let size = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
     let position = (position / scale).cast_i32();
     for i in -1..=1 {
         for j in -1..=1 {
             for k in -1..=1 {
                 let offset = LVec3::expr(i, j, k);
-                let cell = (position + offset)
-                    .rem_euclid(size)
-                    .cast_u32()
-                    .reduce_prod();
+                let cell = grid_cell_index(position + offset, size);
                 let offset = grid.offset.read(cell);
                 let count = grid.count.read(cell);
                 for i in 0.expr()..count {
@@ -316,7 +312,10 @@ fn step(
         .filter_map(|(name, time)| (name == "step_kernel").then_some(time))
         .collect::<Vec<_>>();
     if !step_times.is_empty() {
-        println!("Step time: {:?}", step_times);
+        println!(
+            "Step time: {:?}",
+            step_times.iter().copied().copied().sum::<f32>() / step_times.len() as f32
+        );
     }
 }
 
@@ -331,11 +330,17 @@ fn reset_grid_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kernel<fn()> 
 }
 
 #[tracked]
+fn grid_cell_index(position: Expr<LVec3<i32>>, size: UVec3) -> Expr<u32> {
+    let size_i = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
+
+    let position = position.rem_euclid(size_i).cast_u32();
+    position.x + size.x * (position.y + size.y * position.z)
+}
+
+#[tracked]
 fn grid_cell(position: Expr<LVec3<f32>>, size: UVec3, scale: f32) -> Expr<u32> {
-    let size = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
     let position = position / scale;
-    let position = position.cast_i32().rem_euclid(size).cast_u32();
-    position.reduce_prod()
+    grid_cell_index(position.cast_i32(), size)
 }
 
 #[kernel]
