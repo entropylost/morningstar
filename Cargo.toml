@@ -9,7 +9,7 @@ nalgebra = { version = "0.33.0", features = [
     "convert-glam028",
     "convert-glam027",
 ] }
-amida = { path = "../amida" }
+prism = { path = "../prism" }
 color-eyre = "0.6.2"
 sefirot = { path = "../sefirot/sefirot", features = ["bevy"] }
 sefirot_grid = { path = "../sefirot/sefirot_grid" }
@@ -19,6 +19,8 @@ egui = "0.28.1"
 bevy_flycam = "0.14.1"
 serde = { version = "1.0.204", features = ["derive"] }
 ron = "0.8.1"
+smallvec = "1.13.2"
+parking_lot = "0.12.3"
 
 
 [dependencies.bevy]
@@ -27,7 +29,6 @@ version = "0.14.1"
 [dependencies.luisa_compute]
 git = "https://github.com/LuisaGroup/luisa-compute-rs"
 branch = "main"
-features = ["nalgebra", "glam"]
 
 [features]
 default = ["dylib"]
