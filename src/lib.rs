@@ -2,7 +2,7 @@ use bevy::color::Color;
 use bevy::math::Vec3;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct Particle {
     pub position: Vec3,
     pub velocity: Vec3,

@@ -93,7 +93,7 @@ fn setup(
     constants: Res<Constants>,
 ) {
     let scene =
-        ron::de::from_reader::<_, fracture::Scene>(File::open("scene.ron").unwrap()).unwrap();
+        ron::de::from_reader::<_, fracture::Scene>(File::open("scene2.ron").unwrap()).unwrap();
 
     let mesh = meshes.add(Sphere::new(0.5));
 
@@ -144,7 +144,13 @@ fn setup(
 
     println!("Num particles: {}", scene.particles.len());
 
-    let particles = scene.particles;
+    let mut particles = scene.particles;
+    for p in &mut particles {
+        let a = p.position.x;
+        let b = p.position.y;
+        p.position.x = b;
+        p.position.y = a;
+    }
     let l = particles.len();
 
     let particles = Particles {
@@ -187,7 +193,7 @@ fn neighbors(
 ) {
     let size = constants.grid_size;
     let scale = constants.grid_scale;
-    let position = (position / scale).cast_i32();
+    let position = (position / scale).floor().cast_i32();
     for i in -1..=1 {
         for j in -1..=1 {
             for k in -1..=1 {
@@ -221,30 +227,30 @@ fn step_kernel(
         let rest_position = particles.rest_position.read(*index);
         let bond_start = particles.bond_start.read(*index);
         let bond_count = particles.bond_count.read(*index);
-        let force = gravity.var();
-        *force -= velocity * constants.air_friction;
-        for bond in bond_start..bond_start + bond_count {
-            let other = bonds.other_particle.read(bond);
-            if other == u32::MAX {
-                continue;
-            }
-            let other_position = particles.position.read(other);
-            let other_velocity = particles.velocity.read(other);
-            let other_rest_position = particles.rest_position.read(other);
-            let delta = other_position - position;
-            let delta_v = other_velocity - velocity;
-            let length = delta.norm();
-            let rest_length = (other_rest_position - rest_position).norm();
-            if length > constants.breaking_distance * rest_length {
-                bonds.other_particle.write(bond, u32::MAX);
-                continue;
-            }
-            let dir = delta / length;
-            let length_ratio_sq = (length / rest_length).sqr();
-            let force_mag = (length_ratio_sq - 1.0 / length_ratio_sq) * constants.spring_constant
-                + delta_v.dot(dir) * constants.damping_constant;
-            *force += dir * force_mag;
-        }
+        let force = LVec3::splat(0.0_f32).var();
+        // *force -= velocity * constants.air_friction;
+        // for bond in bond_start..bond_start + bond_count {
+        //     let other = bonds.other_particle.read(bond);
+        //     if other == u32::MAX {
+        //         continue;
+        //     }
+        //     let other_position = particles.position.read(other);
+        //     let other_velocity = particles.velocity.read(other);
+        //     let other_rest_position = particles.rest_position.read(other);
+        //     let delta = other_position - position;
+        //     let delta_v = other_velocity - velocity;
+        //     let length = delta.norm();
+        //     let rest_length = (other_rest_position - rest_position).norm();
+        //     if length > constants.breaking_distance * rest_length {
+        //         bonds.other_particle.write(bond, u32::MAX);
+        //         continue;
+        //     }
+        //     let dir = delta / length;
+        //     let length_ratio_sq = (length / rest_length).sqr();
+        //     let force_mag = (length_ratio_sq - 1.0 / length_ratio_sq) * constants.spring_constant
+        //         + delta_v.dot(dir) * constants.damping_constant;
+        //     *force += dir * force_mag;
+        // }
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
                 let other_position = particles.position.read(other);
@@ -334,13 +340,13 @@ fn grid_cell_index(position: Expr<LVec3<i32>>, size: UVec3) -> Expr<u32> {
     let size_i = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
 
     let position = position.rem_euclid(size_i).cast_u32();
-    position.x + size.x * (position.y + size.y * position.z)
+    position.y + size.x * position.x + size.x * size.y * position.z
 }
 
 #[tracked]
 fn grid_cell(position: Expr<LVec3<f32>>, size: UVec3, scale: f32) -> Expr<u32> {
     let position = position / scale;
-    grid_cell_index(position.cast_i32(), size)
+    grid_cell_index(position.floor().cast_i32(), size)
 }
 
 #[kernel]
@@ -401,12 +407,12 @@ impl Default for Constants {
     fn default() -> Self {
         Self {
             substeps: 10,
-            dt: 1000.0 / 600.0,
-            gravity: Vec3::new(0.0, -0.000002, 0.0),
+            dt: 1.0 / 600.0,
+            gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             air_friction: 0.0,
             breaking_distance: 1.005,
-            spring_constant: 0.001,
-            damping_constant: 0.001,
+            spring_constant: 10.0,
+            damping_constant: 0.0,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
