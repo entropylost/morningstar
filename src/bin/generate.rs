@@ -10,7 +10,7 @@ use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let volume = Cuboid::new(Vector3::new(20.0, 20.0, 4.0));
+    let volume = Cuboid::new(Vector3::new(4.0, 4.0, 1.0));
 
     let block_points = volume.packed_points(PackedSettings {
         particle_settings: 0.5.into(),
@@ -21,7 +21,7 @@ fn main() {
     println!("Iters: {}", block_points.iters);
     println!("Penetration: {}", block_points.max_penetration);
 
-    let circle_points = Ball::new(4.0)
+    let circle_points = Ball::new(1.0)
         .offset(Vector3::new(0.0, 0.0, 10.0))
         .packed_points(PackedSettings {
             particle_settings: 0.5.into(),
@@ -93,7 +93,7 @@ fn main() {
         bonds,
     };
 
-    let file = File::create("scene2.ron").unwrap();
+    let file = File::create("scene5.ron").unwrap();
 
     ron::ser::to_writer(file, &scene).unwrap();
 }
