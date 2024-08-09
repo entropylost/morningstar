@@ -221,7 +221,7 @@ fn step_kernel(
         let rest_position = particles.rest_position.read(*index);
         let bond_start = particles.bond_start.read(*index);
         let bond_count = particles.bond_count.read(*index);
-        let force = LVec3::splat(0.0_f32).var();
+        let force = gravity.var();
         *force -= velocity * constants.air_friction;
         for bond in bond_start..bond_start + bond_count {
             let other = bonds.other_particle.read(bond);
@@ -240,8 +240,7 @@ fn step_kernel(
                 continue;
             }
             let dir = delta / length;
-            let length_ratio_sq = (length / rest_length).sqr();
-            let force_mag = (length_ratio_sq - 1.0 / length_ratio_sq) * constants.spring_constant
+            let force_mag = (length - rest_length) * constants.spring_constant
                 + delta_v.dot(dir) * constants.damping_constant;
             *force += dir * force_mag;
         }
@@ -250,11 +249,10 @@ fn step_kernel(
                 let other_position = particles.position.read(other);
                 let delta = other_position - position;
                 let length = delta.norm();
-                if length < constants.particle_radius * 2.0 {
+                let penetration = length - constants.particle_radius * 2.0;
+                if penetration < 0.0 {
                     let dir = delta / length;
-                    let length = length / (constants.particle_radius * 2.0);
-                    let length_sq = length.sqr();
-                    let force_mag = (length_sq - 1.0 / length_sq) * constants.spring_constant;
+                    let force_mag = penetration * constants.collision_constant;
                     *force += dir * force_mag;
                 }
             }
@@ -282,7 +280,6 @@ fn step(
     constants: Res<Constants>,
     controls: Res<Controls>,
     particles: Res<Particles>,
-    grid: Res<Grid>,
 ) {
     let step = controls.running.then(|| {
         (0..constants.substeps)
@@ -307,18 +304,23 @@ fn step(
             .copy_to_shared(&particles.rendered_positions_host),
     )
         .chain();
-    let timings = ComputeGraph::new(&device).add(commands).execute_timed();
-    let step_times = timings
-        .iter()
-        .filter_map(|(name, time)| (name == "step_kernel").then_some(time))
-        .collect::<Vec<_>>();
-    if !step_times.is_empty() {
-        println!(
-            "Step time: {:?}",
-            step_times.iter().copied().copied().sum::<f32>() / step_times.len() as f32
-        );
-        // println!("{:?}", grid.offset.copy_to_vec());
-        // println!("{:?}", grid.count.copy_to_vec());
+    #[cfg(feature = "timed")]
+    {
+        let timings = ComputeGraph::new(&device).add(commands).execute_timed();
+        let step_times = timings
+            .iter()
+            .filter_map(|(name, time)| (name == "step_kernel").then_some(time))
+            .collect::<Vec<_>>();
+        if !step_times.is_empty() {
+            println!(
+                "Step time: {:?}",
+                step_times.iter().copied().copied().sum::<f32>() / step_times.len() as f32
+            );
+        }
+    }
+    #[cfg(not(feature = "timed"))]
+    {
+        ComputeGraph::new(&device).add(commands).execute();
     }
 }
 
@@ -395,6 +397,7 @@ struct Constants {
     air_friction: f32,
     breaking_distance: f32,
     spring_constant: f32,
+    collision_constant: f32,
     damping_constant: f32,
     grid_size: UVec3,
     grid_scale: f32,
@@ -407,9 +410,10 @@ impl Default for Constants {
             dt: 1.0 / 600.0,
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             air_friction: 0.0,
-            breaking_distance: 1.005,
-            spring_constant: 100.0,
-            damping_constant: 0.0,
+            breaking_distance: 1.02,
+            spring_constant: 000.0,
+            collision_constant: 1000.0,
+            damping_constant: 00.0,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
