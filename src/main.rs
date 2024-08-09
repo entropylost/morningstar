@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::render::settings::{PowerPreference, WgpuSettings};
 use bevy::render::RenderPlugin;
 use bevy_egui::{EguiContexts, EguiPlugin};
-use bevy_flycam::{MovementSettings, PlayerPlugin};
+use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
 use bevy_sefirot::luisa::{InitKernel, LuisaDevice, LuisaPlugin};
 use luisa::lang::types::vector::Vec3 as LVec3;
@@ -14,27 +14,6 @@ use parking_lot::Mutex;
 use sefirot::graph::{AsNodes as AsNodesExt, ComputeGraph};
 use sefirot::mapping::buffer::StaticDomain;
 use sefirot::prelude::*;
-
-#[derive(Debug, Value, Clone, Copy)]
-#[repr(C)]
-struct Particle {
-    position: LVec3<f32>,
-    next_position: LVec3<f32>,
-    velocity: LVec3<f32>,
-    next_velocity: LVec3<f32>,
-    // Used for computing the rest bond length.
-    rest_position: LVec3<f32>,
-    bond_start: u32,
-    bond_count: u32,
-    fixed: bool,
-}
-
-#[derive(Debug, Value, Clone, Copy)]
-#[repr(C)]
-struct Bond {
-    // Broken if its max.
-    other_particle: u32,
-}
 
 fn install_eyre() {
     use color_eyre::config::*;
@@ -74,7 +53,7 @@ fn main() {
         )
         .add_plugins(EguiPlugin)
         // Potentially replace with the fancy camera controller.
-        .add_plugins(PlayerPlugin)
+        .add_plugins(NoCameraPlayerPlugin)
         .init_resource::<Controls>()
         .init_resource::<Constants>()
         .insert_resource(ClearColor(Color::srgb(0.7, 0.7, 0.72)))
@@ -89,7 +68,14 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             InitKernel,
-            (init_extract_kernel, init_copy_kernel, init_step_kernel),
+            (
+                init_count_kernel,
+                init_reset_grid_kernel,
+                init_add_particle_kernel,
+                init_compute_offset_kernel,
+                init_copy_kernel,
+                init_step_kernel,
+            ),
         )
         .add_systems(Update, (step, update_ui, update_render).chain())
         .run();
@@ -104,6 +90,7 @@ fn setup(
     device: Res<LuisaDevice>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    constants: Res<Constants>,
 ) {
     let scene =
         ron::de::from_reader::<_, fracture::Scene>(File::open("scene.ron").unwrap()).unwrap();
@@ -147,71 +134,113 @@ fn setup(
         ..default()
     });
 
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(30.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        FlyCam,
+    ));
+
     println!("Num particles: {}", scene.particles.len());
 
-    let particles = scene
-        .particles
-        .iter()
-        .map(|p| Particle {
-            position: lv(p.position),
-            next_position: lv(p.position),
-            velocity: lv(p.velocity),
-            next_velocity: lv(p.velocity),
-            rest_position: lv(p.position),
-            bond_start: p.bond_start,
-            bond_count: p.bond_count,
-            fixed: p.fixed,
-        })
-        .collect::<Vec<_>>();
-    let bonds = scene
-        .bonds
-        .iter()
-        .map(|bond| Bond {
-            other_particle: bond.other_particle,
-        })
-        .collect::<Vec<_>>();
-    commands.insert_resource(Buffers {
-        domain: StaticDomain::<1>::new(particles.len() as u32),
-        particles: device.create_buffer_from_slice(&particles),
-        bonds: device.create_buffer_from_slice(&bonds),
-        rendered_positions: device.create_buffer(particles.len()),
+    let particles = scene.particles;
+    let l = particles.len();
+
+    let particles = Particles {
+        domain: StaticDomain::<1>::new(l as u32),
+        position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        next_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
+        next_velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
+        rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
+        bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
+        fixed: device.create_buffer_from_fn(l, |i| particles[i].fixed),
         rendered_positions_host: Arc::new(Mutex::new(
-            scene.particles.iter().map(|p| lv(p.position)).collect(),
+            particles.iter().map(|p| lv(p.position)).collect(),
         )),
-    });
+    };
+    let bonds = Bonds {
+        other_particle: device
+            .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
+    };
+    let grid_size = constants.grid_size.element_product() as usize;
+    let grid = Grid {
+        domain: StaticDomain::<1>::new(grid_size as u32),
+        count: device.create_buffer(grid_size),
+        offset: device.create_buffer(grid_size),
+        particles: device.create_buffer(l),
+        next_block: device.create_buffer(1),
+    };
+    commands.insert_resource(particles);
+    commands.insert_resource(bonds);
+    commands.insert_resource(grid);
+}
+
+#[tracked]
+fn neighbors(
+    grid: &Grid,
+    constants: &Constants,
+    position: Expr<LVec3<f32>>,
+    f: impl Fn(Expr<u32>),
+) {
+    let size = constants.grid_size;
+    let scale = constants.grid_scale;
+    let size = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
+    let position = (position / scale).cast_i32();
+    for i in -1..=1 {
+        for j in -1..=1 {
+            for k in -1..=1 {
+                let offset = LVec3::expr(i, j, k);
+                let cell = (position + offset)
+                    .rem_euclid(size)
+                    .cast_u32()
+                    .reduce_prod();
+                let offset = grid.offset.read(cell);
+                let count = grid.count.read(cell);
+                for i in 0.expr()..count {
+                    f(grid.particles.read(offset + i));
+                }
+            }
+        }
+    }
 }
 
 #[kernel]
 fn step_kernel(
     device: Res<LuisaDevice>,
-    buffers: Res<Buffers>,
+    particles: Res<Particles>,
+    bonds: Res<Bonds>,
+    grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     let gravity = lv(constants.gravity);
-    Kernel::build(&device, &buffers.domain, &|index| {
-        let particle = buffers.particles.read(*index).var();
-        if particle.fixed {
+    Kernel::build(&device, &particles.domain, &|index| {
+        if particles.fixed.read(*index) {
             return;
         }
+        let velocity = particles.velocity.read(*index);
+        let position = particles.position.read(*index);
+        let rest_position = particles.rest_position.read(*index);
+        let bond_start = particles.bond_start.read(*index);
+        let bond_count = particles.bond_count.read(*index);
         let force = gravity.var();
-        *force -= particle.velocity * constants.air_friction;
-        for bond in **particle.bond_start..particle.bond_start + particle.bond_count {
-            let index = buffers.bonds.read(bond).other_particle;
-            if index == u32::MAX {
+        *force -= velocity * constants.air_friction;
+        for bond in bond_start..bond_start + bond_count {
+            let other = bonds.other_particle.read(bond);
+            if other == u32::MAX {
                 continue;
             }
-            let other = buffers.particles.read(index);
-            let delta = other.position - particle.position;
-            let delta_v = other.velocity - particle.velocity;
+            let other_position = particles.position.read(other);
+            let other_velocity = particles.velocity.read(other);
+            let other_rest_position = particles.rest_position.read(other);
+            let delta = other_position - position;
+            let delta_v = other_velocity - velocity;
             let length = delta.norm();
-            let rest_length = (other.rest_position - particle.rest_position).norm();
+            let rest_length = (other_rest_position - rest_position).norm();
             if length > constants.breaking_distance * rest_length {
-                buffers.bonds.write(
-                    bond,
-                    Bond {
-                        other_particle: u32::MAX,
-                    },
-                );
+                bonds.other_particle.write(bond, u32::MAX);
                 continue;
             }
             let dir = delta / length;
@@ -220,25 +249,35 @@ fn step_kernel(
                 + delta_v.dot(dir) * constants.damping_constant;
             *force += dir * force_mag;
         }
-        *particle.next_velocity = particle.velocity + force * constants.dt;
-        *particle.next_position = particle.position + particle.next_velocity * constants.dt;
-        buffers.particles.write(*index, **particle);
+        neighbors(&grid, &constants, position, |other| {
+            if other != *index {
+                let other_position = particles.position.read(other);
+                let delta = other_position - position;
+                let length = delta.norm();
+                if length < constants.particle_radius * 2.0 {
+                    let dir = delta / length;
+                    let length = length / (constants.particle_radius * 2.0);
+                    let length_sq = length.sqr();
+                    let force_mag = (length_sq - 1.0 / length_sq) * constants.spring_constant;
+                    *force += dir * force_mag;
+                }
+            }
+        });
+        let next_velocity = velocity + force * constants.dt;
+        let next_position = position + next_velocity * constants.dt;
+        particles.next_velocity.write(*index, next_velocity);
+        particles.next_position.write(*index, next_position);
     })
 }
 #[kernel]
-fn extract_kernel(device: Res<LuisaDevice>, buffers: Res<Buffers>) -> Kernel<fn()> {
-    Kernel::build(&device, &buffers.domain, &|index| {
-        let particle = buffers.particles.read(*index);
-        buffers.rendered_positions.write(*index, particle.position);
-    })
-}
-#[kernel]
-fn copy_kernel(device: Res<LuisaDevice>, buffers: Res<Buffers>) -> Kernel<fn()> {
-    Kernel::build(&device, &buffers.domain, &|index| {
-        let particle = buffers.particles.read(*index).var();
-        *particle.velocity = particle.next_velocity;
-        *particle.position = particle.next_position;
-        buffers.particles.write(*index, **particle);
+fn copy_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
+    Kernel::build(&device, &particles.domain, &|index| {
+        particles
+            .position
+            .write(*index, particles.next_position.read(*index));
+        particles
+            .velocity
+            .write(*index, particles.next_velocity.read(*index));
     })
 }
 
@@ -246,23 +285,98 @@ fn step(
     device: Res<LuisaDevice>,
     constants: Res<Constants>,
     controls: Res<Controls>,
-    buffers: Res<Buffers>,
+    particles: Res<Particles>,
 ) {
     let step = controls.running.then(|| {
         (0..constants.substeps)
-            .map(|_| (step_kernel.dispatch(), copy_kernel.dispatch()).chain())
+            .map(|_| {
+                (
+                    reset_grid_kernel.dispatch(),
+                    count_kernel.dispatch(),
+                    compute_offset_kernel.dispatch(),
+                    add_particle_kernel.dispatch(),
+                    step_kernel.dispatch(),
+                    copy_kernel.dispatch(),
+                )
+                    .chain()
+            })
             .collect::<Vec<_>>()
             .chain()
     });
     let commands = (
         step,
-        extract_kernel.dispatch(),
-        buffers
-            .rendered_positions
-            .copy_to_shared(&buffers.rendered_positions_host),
+        particles
+            .position
+            .copy_to_shared(&particles.rendered_positions_host),
     )
         .chain();
-    ComputeGraph::new(&device).add(commands).execute();
+    let timings = ComputeGraph::new(&device).add(commands).execute_timed();
+    let step_times = timings
+        .iter()
+        .filter_map(|(name, time)| (name == "step_kernel").then_some(time))
+        .collect::<Vec<_>>();
+    if !step_times.is_empty() {
+        println!("Step time: {:?}", step_times);
+    }
+}
+
+#[kernel]
+fn reset_grid_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kernel<fn()> {
+    Kernel::build(&device, &grid.domain, &|index| {
+        grid.count.write(*index, 0);
+        if *index == 0 {
+            grid.next_block.write(0, 0);
+        }
+    })
+}
+
+#[tracked]
+fn grid_cell(position: Expr<LVec3<f32>>, size: UVec3, scale: f32) -> Expr<u32> {
+    let size = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
+    let position = position / scale;
+    let position = position.cast_i32().rem_euclid(size).cast_u32();
+    position.reduce_prod()
+}
+
+#[kernel]
+fn count_kernel(
+    device: Res<LuisaDevice>,
+    particles: Res<Particles>,
+    grid: Res<Grid>,
+    constants: Res<Constants>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &particles.domain, &|index| {
+        let cell = grid_cell(
+            particles.position.read(*index),
+            constants.grid_size,
+            constants.grid_scale,
+        );
+        grid.count.atomic_ref(cell).fetch_add(1);
+    })
+}
+
+#[kernel]
+fn compute_offset_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kernel<fn()> {
+    Kernel::build(&device, &grid.domain, &|index| {
+        let count = grid.count.read(*index);
+        grid.offset
+            .write(*index, grid.next_block.atomic_ref(0).fetch_add(count));
+    })
+}
+
+#[kernel]
+fn add_particle_kernel(
+    device: Res<LuisaDevice>,
+    particles: Res<Particles>,
+    grid: Res<Grid>,
+    constants: Res<Constants>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &particles.domain, &|index| {
+        let position = particles.position.read(*index);
+        let cell = grid_cell(position, constants.grid_size, constants.grid_scale);
+        let offset = grid.offset.read(cell) + grid.count.atomic_ref(cell).fetch_add(1);
+        grid.particles.write(offset, *index);
+    })
 }
 
 #[derive(Debug, Clone, Copy, Resource)]
@@ -274,6 +388,9 @@ struct Constants {
     breaking_distance: f32,
     spring_constant: f32,
     damping_constant: f32,
+    grid_size: UVec3,
+    grid_scale: f32,
+    particle_radius: f32,
 }
 impl Default for Constants {
     fn default() -> Self {
@@ -285,17 +402,40 @@ impl Default for Constants {
             breaking_distance: 1.005,
             spring_constant: 0.001,
             damping_constant: 0.001,
+            grid_size: UVec3::splat(40),
+            grid_scale: 1.0, // The particle diameter.
+            particle_radius: 0.5,
         }
     }
 }
 
 #[derive(Debug, Resource)]
-struct Buffers {
+struct Particles {
     domain: StaticDomain<1>,
-    particles: Buffer<Particle>,
-    bonds: Buffer<Bond>,
-    rendered_positions: Buffer<LVec3<f32>>,
+    position: Buffer<LVec3<f32>>,
+    next_position: Buffer<LVec3<f32>>,
+    velocity: Buffer<LVec3<f32>>,
+    next_velocity: Buffer<LVec3<f32>>,
+    rest_position: Buffer<LVec3<f32>>,
+    bond_start: Buffer<u32>,
+    bond_count: Buffer<u32>,
+    fixed: Buffer<bool>,
     rendered_positions_host: Arc<Mutex<Vec<LVec3<f32>>>>,
+}
+
+#[derive(Debug, Resource)]
+struct Bonds {
+    other_particle: Buffer<u32>,
+}
+
+#[derive(Debug, Resource)]
+struct Grid {
+    domain: StaticDomain<1>,
+    count: Buffer<u32>,
+    offset: Buffer<u32>,
+    particles: Buffer<u32>,
+    // For atomics.
+    next_block: Buffer<u32>,
 }
 
 #[derive(Debug, Component)]
@@ -331,10 +471,10 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
 
 fn update_render(
     controls: Res<Controls>,
-    buffers: Res<Buffers>,
+    particles: Res<Particles>,
     mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
 ) {
-    let rendered_positions = buffers.rendered_positions_host.lock();
+    let rendered_positions = particles.rendered_positions_host.lock();
 
     for (particle, mut transform, mut visible) in query.iter_mut() {
         if controls.slice && transform.translation.x > controls.slice_position {
@@ -344,6 +484,9 @@ fn update_render(
         }
         // Update nalgebra eventually.
         let pos = rendered_positions[particle.index as usize];
+        if pos.x.is_infinite() || pos.y.is_infinite() || pos.z.is_infinite() {
+            panic!("Infinite position");
+        }
         transform.translation = Vec3::new(pos.x, pos.y, pos.z);
     }
 }
