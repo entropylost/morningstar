@@ -18,7 +18,7 @@ pub struct Constants {
     pub grid_scale: f32,
     pub particle_radius: f32,
     pub spring_model: SpringModel,
-    pub collision_model: SpringModel,
+    pub collision_model: SpringModel, // Add "Impulse" model, as well as collision radius..?
     pub floor: f32,
     pub floor_restitution: f32,
 }
@@ -28,6 +28,7 @@ pub enum SpringModel {
     Linear,
     Quadratic,
     InvQuadratic,
+    Impulse,
 }
 
 impl Default for Constants {
@@ -54,6 +55,7 @@ impl Default for Constants {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct Particle {
     pub position: Vec3,
     pub velocity: Vec3,

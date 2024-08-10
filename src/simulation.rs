@@ -109,6 +109,7 @@ pub fn step_kernel(
                     SpringModel::InvQuadratic => {
                         (l.sqr() - 1.0 / l.sqr()) * constants.spring_constant
                     }
+                    SpringModel::Impulse => panic!("Unimplemented"),
                 };
             *force += dir * force_mag;
         }
@@ -120,12 +121,21 @@ pub fn step_kernel(
                 let penetration = length - constants.particle_radius * 2.0;
                 if penetration < 0.0 {
                     let dir = delta / length;
-                    let force_mag = match constants.spring_model {
+                    let force_mag = match constants.collision_model {
                         SpringModel::Linear => penetration * constants.collision_constant,
                         SpringModel::Quadratic => penetration.sqr() * constants.collision_constant,
                         SpringModel::InvQuadratic => {
                             let l = length / (constants.particle_radius * 2.0);
                             (l.sqr() - 1.0 / l.sqr()) * constants.collision_constant
+                        }
+                        SpringModel::Impulse => {
+                            let other_velocity = particles.velocity.read(other);
+                            let dv = other_velocity - velocity;
+                            let normal_mass = 1.0 / (1.0_f32 + 1.0);
+                            let bias_vel = 0.0_f32; //constants.collision_bias
+                                                    // * luisa::min(constants.collision_slop - penetration, 0.0);
+                            let impulse = (dv.dot(dir) + bias_vel) * normal_mass;
+                            luisa::min(impulse, 0.0) / constants.dt
                         }
                     };
                     *force += dir * force_mag;
