@@ -76,8 +76,8 @@ pub fn main() {
                 init_reset_grid_kernel,
                 init_add_particle_kernel,
                 init_compute_offset_kernel,
-                init_copy_kernel,
-                init_step_kernel,
+                init_predict_kernel,
+                init_solve_kernel,
             ),
         )
         .add_systems(Update, (step, update_ui, update_render).chain())
@@ -162,9 +162,10 @@ fn setup(
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
         position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        next_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
-        next_velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
+        next_position: device.create_buffer_from_fn(l, |i| {
+            lv(particles[i].position + particles[i].velocity * constants.dt)
+        }),
+        displacement: device.create_buffer_from_fn(l, |i| lv(Vec3::ZERO)),
         rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),

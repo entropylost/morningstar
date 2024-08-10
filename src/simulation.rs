@@ -5,8 +5,7 @@ pub struct Particles {
     pub domain: StaticDomain<1>,
     pub position: Buffer<LVec3<f32>>,
     pub next_position: Buffer<LVec3<f32>>,
-    pub velocity: Buffer<LVec3<f32>>,
-    pub next_velocity: Buffer<LVec3<f32>>,
+    pub displacement: Buffer<LVec3<f32>>,
     pub rest_position: Buffer<LVec3<f32>>,
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
@@ -54,122 +53,44 @@ pub fn neighbors(
 }
 
 #[kernel(init(pub))]
-pub fn step_kernel(
+pub fn solve_kernel(
     device: Res<LuisaDevice>,
     particles: Res<Particles>,
-    bonds: Res<Bonds>,
     grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
-    let gravity = lv(constants.gravity);
     Kernel::build(&device, &particles.domain, &|index| {
+        let position = particles.next_position.read(*index);
         if particles.fixed.read(*index) {
-            let next_position =
-                particles.position.read(*index) + particles.velocity.read(*index) * constants.dt;
-            particles.next_position.write(*index, next_position);
+            particles.displacement.write(*index, LVec3::splat_expr(0.0));
             return;
         }
-        let velocity = particles.velocity.read(*index);
-        let position = particles.position.read(*index);
-        let rest_position = particles.rest_position.read(*index);
-        let bond_start = particles.bond_start.read(*index);
-        let bond_count = particles.bond_count.read(*index);
-        let force = gravity.var();
-        *force -= velocity * constants.air_friction;
-        for bond in bond_start..bond_start + bond_count {
-            let other = bonds.other_particle.read(bond);
-            if other == u32::MAX {
-                continue;
-            }
-            let other_position = particles.position.read(other);
-            let other_velocity = particles.velocity.read(other);
-            let other_rest_position = particles.rest_position.read(other);
-            let delta = other_position - position;
-            let delta_v = other_velocity - velocity;
-            let length = delta.norm();
-            let rest_length = (other_rest_position - rest_position).norm();
-            if length > constants.breaking_distance * rest_length
-                || if constants.min_breaking_distance != 0.0 {
-                    length < constants.min_breaking_distance * rest_length
-                } else {
-                    false.expr()
-                }
-            {
-                bonds.other_particle.write(bond, u32::MAX);
-                continue;
-            }
-            let dir = delta / length;
 
-            let l = length / rest_length;
-
-            let force_mag = delta_v.dot(dir) * constants.damping_constant
-                + match constants.spring_model {
-                    SpringModel::Linear => (l - 1.0) * constants.spring_constant,
-                    SpringModel::Quadratic => (l - 1.0).sqr() * constants.spring_constant,
-                    SpringModel::InvQuadratic => {
-                        (l.sqr() - 1.0 / l.sqr()) * constants.spring_constant
-                    }
-                    SpringModel::Impulse(_) => panic!("Unimplemented"),
-                };
-            *force += dir * force_mag;
-        }
+        let displacement = LVec3::splat_expr(0.0_f32).var();
 
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
-                let other_position = particles.position.read(other);
-                let delta = other_position - position;
                 let length = delta.norm();
-                let penetration = length - constants.particle_radius * 2.0;
-                if penetration < 0.0 {
-                    let dir = delta / length;
-                    let force_mag = match constants.collision_model {
-                        SpringModel::Linear => penetration * constants.collision_constant,
-                        SpringModel::Quadratic => penetration.sqr() * constants.collision_constant,
-                        SpringModel::InvQuadratic => {
-                            let l = length / (constants.particle_radius * 2.0);
-                            (l.sqr() - 1.0 / l.sqr()) * constants.collision_constant
-                        }
-                        SpringModel::Impulse(ImpulseConstants { bias, slop }) => {
-                            let other_velocity = particles.velocity.read(other);
-                            let dv = other_velocity - velocity;
-                            let bias_vel = bias * luisa::min(slop - penetration, 0.0);
-
-                            let normal_mass = if particles.fixed.read(other) {
-                                1.0_f32.expr()
-                            } else {
-                                0.5.expr()
-                            };
-                            let impulse = (dv.dot(dir) + bias_vel) * normal_mass;
-                            luisa::min(impulse, 0.0) / constants.dt
-                        }
-                    };
-                    *force += dir * force_mag;
+                let penetration = 2.0 * constants.particle_radius - length;
+                if penetration > 0.0 {
+                    let normal = delta / length;
+                    *displacement += normal * penetration / 2.0;
                 }
             }
         });
-        let next_velocity = velocity + force * constants.dt;
-        let next_velocity = next_velocity.var();
-        let next_position = position + next_velocity * constants.dt;
-        let next_position = next_position.var();
-        if constants.floor != f32::NEG_INFINITY {
-            if next_position.y < constants.floor {
-                *next_position.y = constants.floor;
-                *next_velocity.y = luisa::max(0.0, -constants.floor_restitution * next_velocity.y);
-            }
-        }
-        particles.next_velocity.write(*index, next_velocity);
-        particles.next_position.write(*index, next_position);
+
+        particles.displacement.write(*index, displacement);
     })
 }
 #[kernel(init(pub))]
-pub fn copy_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
+pub fn predict_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
-        particles
-            .position
-            .write(*index, particles.next_position.read(*index));
-        particles
-            .velocity
-            .write(*index, particles.next_velocity.read(*index));
+        let last_pos = particles.position.read(*index);
+        let pos = particles.next_position.read(*index) + particles.displacement.read(*index);
+        let vel = pos - last_pos;
+        let next_pos = pos + vel;
+        particles.position.write(*index, pos);
+        particles.next_position.write(*index, next_pos);
     })
 }
 
@@ -177,6 +98,8 @@ pub fn step(
     device: Res<LuisaDevice>,
     constants: Res<Constants>,
     controls: Res<Controls>,
+    // grid: Res<Grid>,
+    // particles: Res<Particles>,
     ev: Res<ButtonInput<KeyCode>>,
 ) {
     if !controls.running && !ev.just_pressed(KeyCode::Period) {
@@ -185,12 +108,12 @@ pub fn step(
     let commands = (0..constants.substeps)
         .map(|_| {
             (
+                predict_kernel.dispatch(),
                 reset_grid_kernel.dispatch(),
                 count_kernel.dispatch(),
                 compute_offset_kernel.dispatch(),
                 add_particle_kernel.dispatch(),
-                step_kernel.dispatch(),
-                copy_kernel.dispatch(),
+                solve_kernel.dispatch(),
             )
                 .chain()
         })
@@ -214,6 +137,15 @@ pub fn step(
     {
         ComputeGraph::new(&device).add(commands).execute();
     }
+    // println!("Positions: {:?}", particles.position.copy_to_vec());
+    // println!(
+    //     "Next Positions: {:?}",
+    //     particles.next_position.copy_to_vec()
+    // );
+    // println!("Displacements: {:?}", particles.displacement.copy_to_vec());
+    // println!("Grid Count: {:?}", grid.count.copy_to_vec());
+    // println!("Offsets: {:?}", grid.offset.copy_to_vec());
+    // println!("Particles: {:?}", grid.particles.copy_to_vec());
 }
 
 #[kernel(init(pub))]
@@ -249,7 +181,7 @@ pub fn count_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
         let cell = grid_cell(
-            particles.position.read(*index),
+            particles.next_position.read(*index),
             constants.grid_size,
             constants.grid_scale,
         );
@@ -275,7 +207,7 @@ pub fn add_particle_kernel(
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
-        let position = particles.position.read(*index);
+        let position = particles.next_position.read(*index);
         let cell = grid_cell(position, constants.grid_size, constants.grid_scale);
         let offset = grid.offset.read(cell) + grid.count.atomic_ref(cell).fetch_add(1);
         grid.particles.write(offset, *index);
