@@ -11,7 +11,6 @@ pub struct Particles {
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
     pub fixed: Buffer<bool>,
-    pub rendered_positions_host: Arc<Mutex<Vec<LVec3<f32>>>>,
 }
 
 #[derive(Debug, Resource)]
@@ -89,13 +88,28 @@ pub fn step_kernel(
             let delta_v = other_velocity - velocity;
             let length = delta.norm();
             let rest_length = (other_rest_position - rest_position).norm();
-            if length > constants.breaking_distance * rest_length {
+            if length > constants.breaking_distance * rest_length
+                || if constants.min_breaking_distance != 0.0 {
+                    length < constants.min_breaking_distance * rest_length
+                } else {
+                    false.expr()
+                }
+            {
                 bonds.other_particle.write(bond, u32::MAX);
                 continue;
             }
             let dir = delta / length;
-            let force_mag = (length - rest_length) * constants.spring_constant
-                + delta_v.dot(dir) * constants.damping_constant;
+
+            let l = length / rest_length;
+
+            let force_mag = delta_v.dot(dir) * constants.damping_constant
+                + match constants.spring_model {
+                    SpringModel::Linear => (l - 1.0) * constants.spring_constant,
+                    SpringModel::Quadratic => (l - 1.0).sqr() * constants.spring_constant,
+                    SpringModel::InvQuadratic => {
+                        (l.sqr() - 1.0 / l.sqr()) * constants.spring_constant
+                    }
+                };
             *force += dir * force_mag;
         }
         neighbors(&grid, &constants, position, |other| {
@@ -106,13 +120,28 @@ pub fn step_kernel(
                 let penetration = length - constants.particle_radius * 2.0;
                 if penetration < 0.0 {
                     let dir = delta / length;
-                    let force_mag = penetration * constants.collision_constant;
+                    let force_mag = match constants.spring_model {
+                        SpringModel::Linear => penetration * constants.collision_constant,
+                        SpringModel::Quadratic => penetration.sqr() * constants.collision_constant,
+                        SpringModel::InvQuadratic => {
+                            let l = length / (constants.particle_radius * 2.0);
+                            (l.sqr() - 1.0 / l.sqr()) * constants.collision_constant
+                        }
+                    };
                     *force += dir * force_mag;
                 }
             }
         });
         let next_velocity = velocity + force * constants.dt;
+        let next_velocity = next_velocity.var();
         let next_position = position + next_velocity * constants.dt;
+        let next_position = next_position.var();
+        if constants.floor != f32::NEG_INFINITY {
+            if next_position.y < constants.floor {
+                *next_position.y = constants.floor;
+                *next_velocity.y = luisa::max(0.0, -constants.floor_restitution * next_velocity.y);
+            }
+        }
         particles.next_velocity.write(*index, next_velocity);
         particles.next_position.write(*index, next_position);
     })
@@ -129,34 +158,23 @@ pub fn copy_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kerne
     })
 }
 
-pub fn step(
-    device: Res<LuisaDevice>,
-    constants: Res<Constants>,
-    controls: Res<Controls>,
-    particles: Res<Particles>,
-) {
-    let step = controls.running.then(|| {
-        (0..constants.substeps)
-            .map(|_| {
-                (
-                    count_kernel.dispatch(),
-                    reset_grid_kernel.dispatch(),
-                    compute_offset_kernel.dispatch(),
-                    add_particle_kernel.dispatch(),
-                    step_kernel.dispatch(),
-                    copy_kernel.dispatch(),
-                )
-                    .chain()
-            })
-            .collect::<Vec<_>>()
-            .chain()
-    });
-    let commands = (
-        step,
-        particles
-            .position
-            .copy_to_shared(&particles.rendered_positions_host),
-    )
+pub fn step(device: Res<LuisaDevice>, constants: Res<Constants>, controls: Res<Controls>) {
+    if !controls.running {
+        return;
+    }
+    let commands = (0..constants.substeps)
+        .map(|_| {
+            (
+                count_kernel.dispatch(),
+                reset_grid_kernel.dispatch(),
+                compute_offset_kernel.dispatch(),
+                add_particle_kernel.dispatch(),
+                step_kernel.dispatch(),
+                copy_kernel.dispatch(),
+            )
+                .chain()
+        })
+        .collect::<Vec<_>>()
         .chain();
     #[cfg(feature = "timed")]
     {

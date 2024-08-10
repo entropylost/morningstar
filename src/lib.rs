@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy::render::settings::{PowerPreference, WgpuSettings};
@@ -10,7 +9,6 @@ use bevy_sefirot::kernel;
 use bevy_sefirot::luisa::{InitKernel, LuisaDevice, LuisaPlugin};
 use luisa::lang::types::vector::Vec3 as LVec3;
 use luisa_compute::DeviceType;
-use parking_lot::Mutex;
 use sefirot::graph::{AsNodes as AsNodesExt, ComputeGraph};
 use sefirot::mapping::buffer::StaticDomain;
 use sefirot::prelude::*;
@@ -107,6 +105,7 @@ fn setup(
     for object in &scene.objects {
         let material = materials.add(StandardMaterial {
             base_color: object.color,
+            perceptual_roughness: 1.0,
             ..default()
         });
         let fixed_material = materials.add(StandardMaterial {
@@ -154,6 +153,12 @@ fn setup(
     let particles = scene.particles;
     let l = particles.len();
 
+    let render = ParticleBondData {
+        bond_start: particles.iter().map(|p| p.bond_start).collect(),
+        bond_count: particles.iter().map(|p| p.bond_count).collect(),
+        fixed: particles.iter().map(|p| p.fixed).collect(),
+    };
+
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
         position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
@@ -164,9 +169,6 @@ fn setup(
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
         fixed: device.create_buffer_from_fn(l, |i| particles[i].fixed),
-        rendered_positions_host: Arc::new(Mutex::new(
-            particles.iter().map(|p| lv(p.position)).collect(),
-        )),
     };
     let bonds = Bonds {
         other_particle: device
@@ -180,6 +182,7 @@ fn setup(
         particles: device.create_buffer(l),
         next_block: device.create_buffer(1),
     };
+    commands.insert_resource(render);
     commands.insert_resource(particles);
     commands.insert_resource(bonds);
     commands.insert_resource(grid);
@@ -196,6 +199,7 @@ struct Controls {
     slice: bool,
     slice_position: f32,
     running: bool,
+    visualize_bonds: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -203,6 +207,7 @@ impl Default for Controls {
             slice: false,
             running: false,
             slice_position: 0.01, // mostly to get r-a to shut up.
+            visualize_bonds: false,
         }
     }
 }
@@ -212,17 +217,22 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         ui.checkbox(&mut controls.running, "Running");
         ui.checkbox(&mut controls.slice, "Slice");
         ui.add(
-            egui::Slider::new(&mut controls.slice_position, -10.0..=10.0).text("Slice Position"),
+            egui::Slider::new(&mut controls.slice_position, -20.0..=20.0).text("Slice Position"),
         );
+        ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
     });
 }
 
 fn update_render(
+    mut gizmos: Gizmos,
     controls: Res<Controls>,
+    data: Res<ParticleBondData>,
+    bonds: Res<Bonds>,
     particles: Res<simulation::Particles>,
     mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
 ) {
-    let rendered_positions = particles.rendered_positions_host.lock();
+    let positions = particles.position.copy_to_vec();
+    let bonds = bonds.other_particle.copy_to_vec();
 
     for (particle, mut transform, mut visible) in query.iter_mut() {
         if controls.slice && transform.translation.x > controls.slice_position {
@@ -231,10 +241,27 @@ fn update_render(
             *visible = Visibility::Visible;
         }
         // Update nalgebra eventually.
-        let pos = rendered_positions[particle.index as usize];
-        if pos.x.is_infinite() || pos.y.is_infinite() || pos.z.is_infinite() {
-            panic!("Infinite position");
+        let pos = positions[particle.index as usize];
+        let pos = Vec3::new(pos.x, pos.y, pos.z);
+        transform.translation = pos;
+        if controls.visualize_bonds && !data.fixed[particle.index as usize] {
+            let start = data.bond_start[particle.index as usize] as usize;
+            let count = data.bond_count[particle.index as usize] as usize;
+            for &bond in bonds.iter().skip(start).take(count) {
+                if bond != u32::MAX {
+                    let other = bond as usize;
+                    let other_pos = positions[other];
+                    let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
+                    gizmos.line(pos, other_pos, Color::WHITE);
+                }
+            }
         }
-        transform.translation = Vec3::new(pos.x, pos.y, pos.z);
     }
+}
+
+#[derive(Debug, Resource)]
+struct ParticleBondData {
+    bond_start: Vec<u32>,
+    bond_count: Vec<u32>,
+    fixed: Vec<bool>,
 }

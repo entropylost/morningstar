@@ -1,3 +1,5 @@
+use core::f32;
+
 use super::*;
 
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
@@ -8,13 +10,26 @@ pub struct Constants {
     pub gravity: Vec3,
     pub air_friction: f32,
     pub breaking_distance: f32,
+    pub min_breaking_distance: f32,
     pub spring_constant: f32,
-    pub collision_constant: f32,
     pub damping_constant: f32,
+    pub collision_constant: f32,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
+    pub spring_model: SpringModel,
+    pub collision_model: SpringModel,
+    pub floor: f32,
+    pub floor_restitution: f32,
 }
+#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize, Default)]
+pub enum SpringModel {
+    #[default]
+    Linear,
+    Quadratic,
+    InvQuadratic,
+}
+
 impl Default for Constants {
     fn default() -> Self {
         Self {
@@ -23,12 +38,17 @@ impl Default for Constants {
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             air_friction: 0.0,
             breaking_distance: 1.02,
+            min_breaking_distance: 0.0,
             spring_constant: 000.0,
-            collision_constant: 1000.0,
             damping_constant: 00.0,
+            collision_constant: 1000.0,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
+            spring_model: SpringModel::Linear,
+            collision_model: SpringModel::Linear,
+            floor: f32::NEG_INFINITY,
+            floor_restitution: 0.0,
         }
     }
 }
@@ -63,6 +83,8 @@ pub struct Object {
     #[serde(default)]
     pub position: Vec3,
     #[serde(default)]
+    pub angle: Quat,
+    #[serde(default)]
     pub fixed: i8,
     // pub rotation: Option<Quat>,
 }
@@ -87,8 +109,8 @@ impl Scene {
             let bond_offset = bonds.len() as u32;
             particles.extend(obj_particles.into_iter().map(|mut p| {
                 p.bond_start += bond_offset;
-                p.position += object.position;
-                p.velocity += object.velocity;
+                p.position = object.position + object.angle * p.position;
+                p.velocity = object.velocity + object.angle * p.velocity;
                 if object.fixed == -1 {
                     p.fixed = false;
                 } else if object.fixed == 1 {
