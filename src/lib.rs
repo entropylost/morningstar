@@ -1,30 +1,240 @@
-use bevy::color::Color;
-use bevy::math::Vec3;
+use std::fs::File;
+use std::sync::Arc;
+
+use bevy::prelude::*;
+use bevy::render::settings::{PowerPreference, WgpuSettings};
+use bevy::render::RenderPlugin;
+use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
+use bevy_sefirot::kernel;
+use bevy_sefirot::luisa::{InitKernel, LuisaDevice, LuisaPlugin};
+use luisa::lang::types::vector::Vec3 as LVec3;
+use luisa_compute::DeviceType;
+use parking_lot::Mutex;
+use sefirot::graph::{AsNodes as AsNodesExt, ComputeGraph};
+use sefirot::mapping::buffer::StaticDomain;
+use sefirot::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct Particle {
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub bond_start: u32,
-    pub bond_count: u32,
-    pub fixed: bool,
+mod simulation;
+use simulation::*;
+pub mod data;
+use data::*;
+
+fn install_eyre() {
+    use color_eyre::config::*;
+    HookBuilder::blank()
+        .capture_span_trace_by_default(true)
+        .add_frame_filter(Box::new(|frames| {
+            let allowed = &["sefirot", "fracture"];
+            frames.retain(|frame| {
+                allowed.iter().any(|f| {
+                    let name = if let Some(name) = frame.name.as_ref() {
+                        name.as_str()
+                    } else {
+                        return false;
+                    };
+
+                    name.starts_with(f)
+                })
+            });
+        }))
+        .install()
+        .unwrap();
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Bond {
-    pub other_particle: u32,
+pub fn main() {
+    install_eyre();
+
+    App::new()
+        .add_plugins(
+            DefaultPlugins.set(RenderPlugin {
+                render_creation: WgpuSettings {
+                    power_preference: PowerPreference::HighPerformance, // Swap to LowPower for igpu.
+                    ..default()
+                }
+                .into(),
+                ..default()
+            }),
+        )
+        .add_plugins(EguiPlugin)
+        // Potentially replace with the fancy camera controller.
+        .add_plugins(NoCameraPlayerPlugin)
+        .init_resource::<Controls>()
+        .insert_resource(ClearColor(Color::srgb(0.7, 0.7, 0.72)))
+        .insert_resource(MovementSettings {
+            sensitivity: 0.00015,
+            speed: 30.0,
+        })
+        .add_plugins(LuisaPlugin {
+            device: DeviceType::Cuda,
+            ..default()
+        })
+        .add_systems(Startup, setup)
+        .add_systems(
+            InitKernel,
+            (
+                init_count_kernel,
+                init_reset_grid_kernel,
+                init_add_particle_kernel,
+                init_compute_offset_kernel,
+                init_copy_kernel,
+                init_step_kernel,
+            ),
+        )
+        .add_systems(Update, (step, update_ui, update_render).chain())
+        .run();
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Object {
-    pub color: Color,
-    pub particles: Vec<u32>,
+fn lv(a: Vec3) -> LVec3<f32> {
+    LVec3::new(a.x, a.y, a.z)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Scene {
-    pub objects: Vec<Object>,
-    pub particles: Vec<Particle>,
-    pub bonds: Vec<Bond>,
+fn setup(
+    mut commands: Commands,
+    device: Res<LuisaDevice>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let args = std::env::args().collect::<Vec<_>>();
+    let scene_name = args.get(1).cloned().unwrap_or("scene.ron".to_string());
+    let scene = ron::de::from_reader::<_, data::Scene>(File::open(scene_name).unwrap()).unwrap();
+    let scene = scene.load();
+    let constants = scene.constants;
+
+    let mesh = meshes.add(Sphere::new(0.5));
+
+    for object in &scene.objects {
+        let material = materials.add(StandardMaterial {
+            base_color: object.color,
+            ..default()
+        });
+        let fixed_material = materials.add(StandardMaterial {
+            base_color: object.color.mix(&Color::BLACK, 0.5),
+            ..default()
+        });
+
+        for index in object.particle_start..object.particle_start + object.particle_count {
+            let particle = &scene.particles[index as usize];
+            commands
+                .spawn(PbrBundle {
+                    mesh: mesh.clone(),
+                    material: if particle.fixed {
+                        fixed_material.clone()
+                    } else {
+                        material.clone()
+                    },
+                    transform: Transform::from_translation(particle.position),
+                    ..default()
+                })
+                .insert(ObjectParticle { index });
+        }
+    }
+
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            color: Color::WHITE,
+            illuminance: 1000.0,
+            ..default()
+        },
+        transform: Transform::from_rotation(Quat::from_rotation_x(-1.0)),
+        ..default()
+    });
+
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(30.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        FlyCam,
+    ));
+
+    println!("Num particles: {}", scene.particles.len());
+
+    let particles = scene.particles;
+    let l = particles.len();
+
+    let particles = simulation::Particles {
+        domain: StaticDomain::<1>::new(l as u32),
+        position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        next_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
+        next_velocity: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity)),
+        rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
+        bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
+        fixed: device.create_buffer_from_fn(l, |i| particles[i].fixed),
+        rendered_positions_host: Arc::new(Mutex::new(
+            particles.iter().map(|p| lv(p.position)).collect(),
+        )),
+    };
+    let bonds = Bonds {
+        other_particle: device
+            .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
+    };
+    let grid_size = constants.grid_size.element_product() as usize;
+    let grid = Grid {
+        domain: StaticDomain::<1>::new(grid_size as u32),
+        count: device.create_buffer(grid_size),
+        offset: device.create_buffer(grid_size),
+        particles: device.create_buffer(l),
+        next_block: device.create_buffer(1),
+    };
+    commands.insert_resource(particles);
+    commands.insert_resource(bonds);
+    commands.insert_resource(grid);
+    commands.insert_resource(constants);
+}
+
+#[derive(Debug, Component)]
+struct ObjectParticle {
+    index: u32,
+}
+
+#[derive(Debug, Resource)]
+struct Controls {
+    slice: bool,
+    slice_position: f32,
+    running: bool,
+}
+impl Default for Controls {
+    fn default() -> Self {
+        Self {
+            slice: false,
+            running: false,
+            slice_position: 0.01, // mostly to get r-a to shut up.
+        }
+    }
+}
+
+fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
+    egui::Window::new("Controls").show(contexts.ctx_mut(), |ui| {
+        ui.checkbox(&mut controls.running, "Running");
+        ui.checkbox(&mut controls.slice, "Slice");
+        ui.add(
+            egui::Slider::new(&mut controls.slice_position, -10.0..=10.0).text("Slice Position"),
+        );
+    });
+}
+
+fn update_render(
+    controls: Res<Controls>,
+    particles: Res<simulation::Particles>,
+    mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
+) {
+    let rendered_positions = particles.rendered_positions_host.lock();
+
+    for (particle, mut transform, mut visible) in query.iter_mut() {
+        if controls.slice && transform.translation.x > controls.slice_position {
+            *visible = Visibility::Hidden;
+        } else {
+            *visible = Visibility::Visible;
+        }
+        // Update nalgebra eventually.
+        let pos = rendered_positions[particle.index as usize];
+        if pos.x.is_infinite() || pos.y.is_infinite() || pos.z.is_infinite() {
+            panic!("Infinite position");
+        }
+        transform.translation = Vec3::new(pos.x, pos.y, pos.z);
+    }
 }
