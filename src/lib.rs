@@ -142,16 +142,16 @@ fn setup(
 
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_translation(constants.camera_position)
+                .looking_at(constants.camera_target, Vec3::Y),
             ..default()
         },
         FlyCam,
     ));
 
-    println!("Num particles: {}", scene.particles.len());
-
     let particles = scene.particles;
     let l = particles.len();
+    println!("Num particles: {}", l);
 
     let render = ParticleBondData {
         bond_start: particles.iter().map(|p| p.bond_start).collect(),

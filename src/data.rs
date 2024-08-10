@@ -21,6 +21,8 @@ pub struct Constants {
     pub collision_model: SpringModel, // Add "Impulse" model, as well as collision radius..?
     pub floor: f32,
     pub floor_restitution: f32,
+    pub camera_position: Vec3,
+    pub camera_target: Vec3,
 }
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize, Default)]
 pub enum SpringModel {
@@ -28,7 +30,21 @@ pub enum SpringModel {
     Linear,
     Quadratic,
     InvQuadratic,
-    Impulse,
+    Impulse(#[serde(default)] ImpulseConstants),
+}
+#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImpulseConstants {
+    pub bias: f32,
+    pub slop: f32,
+}
+impl Default for ImpulseConstants {
+    fn default() -> Self {
+        Self {
+            bias: 0.01,
+            slop: 0.01,
+        }
+    }
 }
 
 impl Default for Constants {
@@ -50,6 +66,8 @@ impl Default for Constants {
             collision_model: SpringModel::Linear,
             floor: f32::NEG_INFINITY,
             floor_restitution: 0.0,
+            camera_position: Vec3::new(0.0, 0.0, 50.0),
+            camera_target: Vec3::ZERO,
         }
     }
 }

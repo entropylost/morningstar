@@ -8,7 +8,7 @@ Scene(
             color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
             particles: "ball.pts",
             position: (0.0, 0.0, 10.0),
-            velocity: (0.0, 0.0, -1.0),
+            velocity: (0.0, 0.0, -10.0),
         )
     ],
     constants: (
@@ -19,6 +19,6 @@ Scene(
         spring_constant: 0.0,
         collision_constant: 0.0,
         damping_constant: 0.0,
-        collision_model: Impulse,
+        collision_model: Impulse(()),
     ),
 )

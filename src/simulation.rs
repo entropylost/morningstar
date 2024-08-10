@@ -109,7 +109,7 @@ pub fn step_kernel(
                     SpringModel::InvQuadratic => {
                         (l.sqr() - 1.0 / l.sqr()) * constants.spring_constant
                     }
-                    SpringModel::Impulse => panic!("Unimplemented"),
+                    SpringModel::Impulse(_) => panic!("Unimplemented"),
                 };
             *force += dir * force_mag;
         }
@@ -128,13 +128,11 @@ pub fn step_kernel(
                             let l = length / (constants.particle_radius * 2.0);
                             (l.sqr() - 1.0 / l.sqr()) * constants.collision_constant
                         }
-                        SpringModel::Impulse => {
+                        SpringModel::Impulse(ImpulseConstants { bias, slop }) => {
                             let other_velocity = particles.velocity.read(other);
                             let dv = other_velocity - velocity;
-                            let normal_mass = 1.0 / (1.0_f32 + 1.0);
-                            let bias_vel = 0.0_f32; //constants.collision_bias
-                                                    // * luisa::min(constants.collision_slop - penetration, 0.0);
-                            let impulse = (dv.dot(dir) + bias_vel) * normal_mass;
+                            let bias_vel = bias * luisa::min(slop - penetration, 0.0);
+                            let impulse = (dv.dot(dir) + bias_vel) / 2.0;
                             luisa::min(impulse, 0.0) / constants.dt
                         }
                     };
@@ -168,15 +166,20 @@ pub fn copy_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kerne
     })
 }
 
-pub fn step(device: Res<LuisaDevice>, constants: Res<Constants>, controls: Res<Controls>) {
-    if !controls.running {
+pub fn step(
+    device: Res<LuisaDevice>,
+    constants: Res<Constants>,
+    controls: Res<Controls>,
+    ev: Res<ButtonInput<KeyCode>>,
+) {
+    if !controls.running && !ev.just_pressed(KeyCode::Period) {
         return;
     }
     let commands = (0..constants.substeps)
         .map(|_| {
             (
-                count_kernel.dispatch(),
                 reset_grid_kernel.dispatch(),
+                count_kernel.dispatch(),
                 compute_offset_kernel.dispatch(),
                 add_particle_kernel.dispatch(),
                 step_kernel.dispatch(),
@@ -253,6 +256,7 @@ pub fn compute_offset_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kerne
         let count = grid.count.read(*index);
         grid.offset
             .write(*index, grid.next_block.atomic_ref(0).fetch_add(count));
+        grid.count.write(*index, 0);
     })
 }
 
