@@ -9,7 +9,7 @@ pub struct Particles {
     pub rest_position: Buffer<LVec3<f32>>,
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
-    pub fixed: Buffer<bool>,
+    pub inv_mass: Buffer<f32>,
 }
 
 #[derive(Debug, Resource)]
@@ -61,7 +61,8 @@ pub fn solve_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
         let position = particles.predicted_position.read(*index);
-        if particles.fixed.read(*index) {
+        let im = particles.inv_mass.read(*index);
+        if im == 0.0 {
             return;
         }
 
@@ -75,15 +76,14 @@ pub fn solve_kernel(
                 let penetration = 2.0 * constants.particle_radius - length;
                 if penetration > 0.0 {
                     let normal = delta / length;
-                    *displacement += particles
-                        .fixed
-                        .read(other)
-                        .select(1.0.expr(), 0.5_f32.expr())
-                        * penetration
-                        * normal;
+                    *displacement +=
+                        penetration * normal * im / (im + particles.inv_mass.read(other));
                 }
             }
         });
+        if constants.floor != f32::NEG_INFINITY && position.y <= constants.floor {
+            *displacement.y += constants.floor - position.y;
+        }
 
         particles.displacement.write(*index, displacement);
     })

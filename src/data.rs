@@ -93,20 +93,40 @@ pub struct Particles {
     pub bonds: Vec<Bond>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Object {
     pub color: Color,
     // Path to file containing Particles
     pub particles: String,
-    #[serde(default)]
     pub velocity: Vec3,
-    #[serde(default)]
     pub position: Vec3,
-    #[serde(default)]
     pub angle: Quat,
-    #[serde(default)]
-    pub fixed: i8,
+    pub mass: f32,
+    pub unfix: bool,
     // pub rotation: Option<Quat>,
+}
+impl Default for Object {
+    fn default() -> Self {
+        Self {
+            color: Color::srgb(0.5, 0.5, 0.5),
+            particles: "".to_string(),
+            velocity: Vec3::ZERO,
+            position: Vec3::ZERO,
+            angle: Quat::IDENTITY,
+            mass: 1.0,
+            unfix: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LoadedParticle {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub bond_start: u32,
+    pub bond_count: u32,
+    pub inv_mass: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,16 +147,16 @@ impl Scene {
             let count = obj_particles.len();
             let particle_offset = particles.len() as u32;
             let bond_offset = bonds.len() as u32;
-            particles.extend(obj_particles.into_iter().map(|mut p| {
-                p.bond_start += bond_offset;
-                p.position = object.position + object.angle * p.position;
-                p.velocity = object.velocity + object.angle * p.velocity;
-                if object.fixed == -1 {
-                    p.fixed = false;
-                } else if object.fixed == 1 {
-                    p.fixed = true;
-                }
-                p
+            particles.extend(obj_particles.into_iter().map(|mut p| LoadedParticle {
+                position: object.position + object.angle * p.position,
+                velocity: object.velocity + object.angle * p.velocity,
+                bond_start: p.bond_start + bond_offset,
+                bond_count: p.bond_count,
+                inv_mass: if p.fixed && !object.unfix {
+                    0.0
+                } else {
+                    1.0 / object.mass
+                },
             }));
             bonds.extend(obj_bonds.into_iter().map(|mut b| {
                 b.other_particle += particle_offset;
@@ -160,7 +180,7 @@ impl Scene {
 
 #[derive(Debug, Clone)]
 pub struct LoadedScene {
-    pub particles: Vec<Particle>,
+    pub particles: Vec<LoadedParticle>,
     pub bonds: Vec<Bond>,
     pub objects: Vec<LoadedObject>,
     pub constants: Constants,

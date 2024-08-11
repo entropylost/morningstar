@@ -118,7 +118,7 @@ fn setup(
             commands
                 .spawn(PbrBundle {
                     mesh: mesh.clone(),
-                    material: if particle.fixed {
+                    material: if particle.inv_mass == 0.0 {
                         fixed_material.clone()
                     } else {
                         material.clone()
@@ -156,7 +156,7 @@ fn setup(
     let render = ParticleBondData {
         bond_start: particles.iter().map(|p| p.bond_start).collect(),
         bond_count: particles.iter().map(|p| p.bond_count).collect(),
-        fixed: particles.iter().map(|p| p.fixed).collect(),
+        fixed: particles.iter().map(|p| p.inv_mass == 0.0).collect(),
     };
 
     let particles = simulation::Particles {
@@ -167,7 +167,7 @@ fn setup(
         rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
-        fixed: device.create_buffer_from_fn(l, |i| particles[i].fixed),
+        inv_mass: device.create_buffer_from_fn(l, |i| particles[i].inv_mass),
     };
     let bonds = Bonds {
         other_particle: device
