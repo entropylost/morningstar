@@ -70,7 +70,7 @@ pub fn solve_kernel(
 
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
-                let other_position = particles.position.read(other);
+                let other_position = particles.predicted_position.read(other);
                 let delta = position - other_position;
                 let length = delta.norm();
                 let penetration = 2.0 * constants.particle_radius - length;
