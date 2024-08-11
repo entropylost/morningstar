@@ -4,7 +4,7 @@ use super::*;
 pub struct Particles {
     pub domain: StaticDomain<1>,
     pub position: Buffer<LVec3<f32>>,
-    pub next_position: Buffer<LVec3<f32>>,
+    pub predicted_position: Buffer<LVec3<f32>>,
     pub displacement: Buffer<LVec3<f32>>,
     pub rest_position: Buffer<LVec3<f32>>,
     pub bond_start: Buffer<u32>,
@@ -60,21 +60,27 @@ pub fn solve_kernel(
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
-        let position = particles.next_position.read(*index);
+        let position = particles.predicted_position.read(*index);
         if particles.fixed.read(*index) {
-            particles.displacement.write(*index, LVec3::splat_expr(0.0));
             return;
         }
 
-        let displacement = LVec3::splat_expr(0.0_f32).var();
+        let displacement = particles.displacement.read(*index).var();
 
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
+                let other_position = particles.position.read(other);
+                let delta = position - other_position;
                 let length = delta.norm();
                 let penetration = 2.0 * constants.particle_radius - length;
                 if penetration > 0.0 {
                     let normal = delta / length;
-                    *displacement += normal * penetration / 2.0;
+                    *displacement += particles
+                        .fixed
+                        .read(other)
+                        .select(1.0.expr(), 0.5_f32.expr())
+                        * penetration
+                        * normal;
                 }
             }
         });
@@ -85,12 +91,12 @@ pub fn solve_kernel(
 #[kernel(init(pub))]
 pub fn predict_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
-        let last_pos = particles.position.read(*index);
-        let pos = particles.next_position.read(*index) + particles.displacement.read(*index);
-        let vel = pos - last_pos;
-        let next_pos = pos + vel;
+        let displacement = particles.displacement.read(*index);
+        let pos = particles.position.read(*index) + displacement;
         particles.position.write(*index, pos);
-        particles.next_position.write(*index, next_pos);
+        particles
+            .predicted_position
+            .write(*index, pos + displacement);
     })
 }
 
@@ -98,8 +104,6 @@ pub fn step(
     device: Res<LuisaDevice>,
     constants: Res<Constants>,
     controls: Res<Controls>,
-    // grid: Res<Grid>,
-    // particles: Res<Particles>,
     ev: Res<ButtonInput<KeyCode>>,
 ) {
     if !controls.running && !ev.just_pressed(KeyCode::Period) {
@@ -137,15 +141,6 @@ pub fn step(
     {
         ComputeGraph::new(&device).add(commands).execute();
     }
-    // println!("Positions: {:?}", particles.position.copy_to_vec());
-    // println!(
-    //     "Next Positions: {:?}",
-    //     particles.next_position.copy_to_vec()
-    // );
-    // println!("Displacements: {:?}", particles.displacement.copy_to_vec());
-    // println!("Grid Count: {:?}", grid.count.copy_to_vec());
-    // println!("Offsets: {:?}", grid.offset.copy_to_vec());
-    // println!("Particles: {:?}", grid.particles.copy_to_vec());
 }
 
 #[kernel(init(pub))]
@@ -181,7 +176,7 @@ pub fn count_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
         let cell = grid_cell(
-            particles.next_position.read(*index),
+            particles.predicted_position.read(*index),
             constants.grid_size,
             constants.grid_scale,
         );
@@ -207,7 +202,7 @@ pub fn add_particle_kernel(
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
-        let position = particles.next_position.read(*index);
+        let position = particles.predicted_position.read(*index);
         let cell = grid_cell(position, constants.grid_size, constants.grid_scale);
         let offset = grid.offset.read(cell) + grid.count.atomic_ref(cell).fetch_add(1);
         grid.particles.write(offset, *index);

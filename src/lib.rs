@@ -162,10 +162,8 @@ fn setup(
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
         position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        next_position: device.create_buffer_from_fn(l, |i| {
-            lv(particles[i].position + particles[i].velocity * constants.dt)
-        }),
-        displacement: device.create_buffer_from_fn(l, |i| lv(Vec3::ZERO)),
+        predicted_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        displacement: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
         rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
