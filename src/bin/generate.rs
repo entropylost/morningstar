@@ -9,7 +9,7 @@ use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let volume = Cuboid::new(Vector3::new(20.0, 3.0, 3.0)) + Vector3::new(20.0, 0.0, 0.0);
+    let volume = Ball::<3>::new(10.0);
 
     let points = volume.packed_points(PackedSettings {
         particle_settings: 0.5.into(),
@@ -58,12 +58,12 @@ fn main() {
         }
     }
     for p in &mut particles {
-        if p.position.x < 1.0 {
+        if p.position.y < -36.0 {
             p.fixed = true;
         }
     }
 
-    let file = File::create("rod.pts").unwrap();
+    let file = File::create("largeball.pts").unwrap();
 
     ron::ser::to_writer(file, &Particles { particles, bonds }).unwrap();
 }

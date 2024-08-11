@@ -8,16 +8,18 @@ Scene(
             color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
             particles: "ball.pts",
             position: (0.0, 0.0, 10.0),
-            velocity: (0.0, 0.0, -1.0),
+            velocity: (0.0, 0.0, -10.0),
+            fixed: 1,
         )
     ],
     constants: (
         substeps: 10,
-        dt: 0.00006666667,
+        dt: 0.00166666667,
         air_friction: 0.0,
-        breaking_distance: 1.001,
-        spring_constant: 10000.0,
-        collision_constant: 1000000.0,
+        breaking_distance: 1.02,
+        spring_constant: 30000.0,
         damping_constant: 100.0,
+        collision_constant: 0.0,
+        collision_model: Impulse(()),
     ),
 )

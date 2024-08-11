@@ -113,6 +113,7 @@ pub fn step_kernel(
                 };
             *force += dir * force_mag;
         }
+
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
                 let other_position = particles.position.read(other);
@@ -132,7 +133,13 @@ pub fn step_kernel(
                             let other_velocity = particles.velocity.read(other);
                             let dv = other_velocity - velocity;
                             let bias_vel = bias * luisa::min(slop - penetration, 0.0);
-                            let impulse = (dv.dot(dir) + bias_vel) / 2.0;
+
+                            let normal_mass = if particles.fixed.read(other) {
+                                1.0_f32.expr()
+                            } else {
+                                0.5.expr()
+                            };
+                            let impulse = (dv.dot(dir) + bias_vel) * normal_mass;
                             luisa::min(impulse, 0.0) / constants.dt
                         }
                     };

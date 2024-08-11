@@ -9,16 +9,17 @@ Scene(
             particles: "ball.pts",
             position: (0.0, 0.0, 10.0),
             velocity: (0.0, 0.0, -10.0),
+            fixed: 1,
         )
     ],
     constants: (
         substeps: 10,
-        dt: 0.00166666667,
+        dt: 0.000166666667,
         air_friction: 0.0,
         breaking_distance: 1.001,
-        spring_constant: 0.0,
+        spring_constant: 3000000.0,
+        damping_constant: 00.0,
         collision_constant: 0.0,
-        damping_constant: 0.0,
         collision_model: Impulse(()),
     ),
 )
