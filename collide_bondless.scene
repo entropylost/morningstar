@@ -4,13 +4,12 @@ Scene(
             color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:1.0)),
             particles: "block.pts",
         ),
-        // TODO: Fix. This breaks literally everything somehow.
         (
             color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
-            particles: "largeball.pts",
+            particles: "ball.pts",
             position: (0.0, 0.0, 20.0),
             velocity: (0.0, 0.0, -10.0),
-            mass: 100.0,
+            mass: inf,
         )
     ],
     constants: (
@@ -23,6 +22,5 @@ Scene(
         collision_constant: 0.0,
         collision_model: Impulse(()),
         floor: -24.0,
-        particle_radius: 0.49,
     ),
 )

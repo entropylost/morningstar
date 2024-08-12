@@ -144,6 +144,11 @@ fn setup(
         Camera3dBundle {
             transform: Transform::from_translation(constants.camera_position)
                 .looking_at(constants.camera_target, Vec3::Y),
+            projection: PerspectiveProjection {
+                fov: 1.15,
+                ..default()
+            }
+            .into(),
             ..default()
         },
         FlyCam,

@@ -56,17 +56,46 @@ pub fn neighbors(
 pub fn solve_kernel(
     device: Res<LuisaDevice>,
     particles: Res<Particles>,
+    bonds: Res<Bonds>,
     grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
         let position = particles.predicted_position.read(*index);
+        let rest_position = particles.rest_position.read(*index);
+        let bond_start = particles.bond_start.read(*index);
+        let bond_count = particles.bond_count.read(*index);
         let im = particles.inv_mass.read(*index);
         if im == 0.0 {
             return;
         }
 
         let displacement = particles.displacement.read(*index).var();
+
+        for bond in bond_start..bond_start + bond_count {
+            let other = bonds.other_particle.read(bond);
+            if other == u32::MAX {
+                continue;
+            }
+            let other_position = particles.predicted_position.read(other);
+            let other_rest_position = particles.rest_position.read(other);
+            let delta = position - other_position;
+            let rest_delta = rest_position - other_rest_position;
+            let length = delta.norm();
+            let rest_length = rest_delta.norm();
+            if length > constants.breaking_distance * rest_length
+                || (constants.min_breaking_distance != 0.0
+                    && length < constants.min_breaking_distance * rest_length)
+            {
+                bonds.other_particle.write(bond, u32::MAX);
+                continue;
+            }
+            let penetration = rest_length - length;
+            let normal = delta / length;
+            *displacement += penetration * normal * im
+                / (im + particles.inv_mass.read(other))
+                / bond_count.cast_f32();
+        }
 
         neighbors(&grid, &constants, position, |other| {
             if other != *index {
@@ -85,7 +114,10 @@ pub fn solve_kernel(
             *displacement.y += constants.floor - position.y;
         }
 
-        particles.displacement.write(*index, displacement);
+        particles.displacement.write(
+            *index,
+            displacement + constants.dt * constants.dt * lv(constants.gravity).expr(),
+        );
     })
 }
 #[kernel(init(pub))]

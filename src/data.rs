@@ -147,7 +147,7 @@ impl Scene {
             let count = obj_particles.len();
             let particle_offset = particles.len() as u32;
             let bond_offset = bonds.len() as u32;
-            particles.extend(obj_particles.into_iter().map(|mut p| LoadedParticle {
+            particles.extend(obj_particles.into_iter().map(|p| LoadedParticle {
                 position: object.position + object.angle * p.position,
                 velocity: object.velocity + object.angle * p.velocity,
                 bond_start: p.bond_start + bond_offset,
