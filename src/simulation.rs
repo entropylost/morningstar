@@ -109,7 +109,18 @@ pub fn step_kernel(
                     SpringModel::InvQuadratic => {
                         (l.sqr() - 1.0 / l.sqr()) * constants.spring_constant
                     }
-                    SpringModel::Impulse(_) => panic!("Unimplemented"),
+                    SpringModel::Impulse(ImpulseConstants { bias, slop: _ }) => {
+                        let bias_vel = -bias * (length - rest_length);
+
+                        let normal_mass = if particles.fixed.read(other) {
+                            1.0_f32.expr()
+                        } else {
+                            0.5.expr()
+                        };
+                        let impulse = (delta_v.dot(dir)) * normal_mass;
+                        impulse / constants.dt / bond_count.cast_f32()
+                            + (l - 1.0) * constants.spring_constant
+                    }
                 };
             *force += dir * force_mag;
         }

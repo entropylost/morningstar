@@ -9,7 +9,7 @@ use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let volume = Ball::<3>::new(10.0);
+    let volume = Cuboid::new(Vector3::new(40.0, 40.0, 10.0));
 
     let points = volume.packed_points(PackedSettings {
         particle_settings: 0.5.into(),
