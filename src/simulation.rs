@@ -15,6 +15,7 @@ pub struct Particles {
 #[derive(Debug, Resource)]
 pub struct Bonds {
     pub other_particle: Buffer<u32>,
+    pub multiplier: Buffer<f32>,
 }
 
 #[derive(Debug, Resource)]
@@ -60,6 +61,9 @@ pub fn solve_kernel(
     grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
+    let bond_compliance = 1.0 / constants.spring_constant;
+    let collision_compliance = 1.0 / constants.collision_constant;
+
     Kernel::build(&device, &particles.domain, &|index| {
         let position = particles.predicted_position.read(*index);
         let rest_position = particles.rest_position.read(*index);
@@ -91,10 +95,13 @@ pub fn solve_kernel(
                 continue;
             }
             let penetration = rest_length - length;
+            let multiplier = bonds.multiplier.read(bond);
+            let other_im = particles.inv_mass.read(other);
+            let delta_multiplier =
+                (penetration - bond_compliance * multiplier) / (im + other_im + bond_compliance);
+            bonds.multiplier.write(bond, delta_multiplier);
             let normal = delta / length;
-            *displacement += penetration * normal * im
-                / (im + particles.inv_mass.read(other))
-                / bond_count.cast_f32();
+            *displacement += normal * im * delta_multiplier / bond_count.cast_f32();
         }
 
         neighbors(&grid, &constants, position, |other| {
@@ -105,8 +112,10 @@ pub fn solve_kernel(
                 let penetration = 2.0 * constants.particle_radius - length;
                 if penetration > 0.0 {
                     let normal = delta / length;
-                    *displacement +=
-                        penetration * normal * im / (im + particles.inv_mass.read(other));
+
+                    let delta_multiplier =
+                        penetration / (im + particles.inv_mass.read(other) + collision_compliance);
+                    *displacement += normal * delta_multiplier * im;
                 }
             }
         });

@@ -177,6 +177,7 @@ fn setup(
     let bonds = Bonds {
         other_particle: device
             .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
+        multiplier: device.create_buffer_from_fn(scene.bonds.len(), |i| 0.0),
     };
     let grid_size = constants.grid_size.element_product() as usize;
     let grid = Grid {

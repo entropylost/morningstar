@@ -28,7 +28,7 @@ version = "0.14.1"
 
 [dependencies.luisa_compute]
 git = "https://github.com/LuisaGroup/luisa-compute-rs"
-branch = "main"
+features = ["glam", "nalgebra"]
 
 [features]
 default = ["dylib"]

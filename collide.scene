@@ -18,6 +18,8 @@ Scene(
         // gravity: (0.0, -10.0, 0.0),
         air_friction: 0.0,
         breaking_distance: 1.1,
+        spring_constant: 100.0,
+        collision_constant: inf,
         // floor: -24.0,
         // particle_radius: 0.49
     ),
