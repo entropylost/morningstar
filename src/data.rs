@@ -8,19 +8,17 @@ pub struct Constants {
     pub substeps: u32,
     pub dt: f32,
     pub gravity: Vec3,
-    pub air_friction: f32,
     pub breaking_distance: f32,
     pub min_breaking_distance: f32,
-    pub spring_constant: f32,
-    pub damping_constant: f32,
-    pub collision_constant: f32,
+    pub breaking_angle: f32,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
-    pub spring_model: SpringModel,
-    pub collision_model: SpringModel, // Add "Impulse" model, as well as collision radius..?
-    pub floor: f32,
-    pub floor_restitution: f32,
+    pub collision_particle_radius: f32,
+    pub bond_radius: f32,
+    pub young_modulus: f32,
+    pub shear_modulus: f32,
+    pub collision_stiffness: f32,
     pub camera_position: Vec3,
     pub camera_target: Vec3,
 }
@@ -53,19 +51,17 @@ impl Default for Constants {
             substeps: 10,
             dt: 1.0 / 600.0,
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
-            air_friction: 0.0,
             breaking_distance: 1.02,
             min_breaking_distance: 0.0,
-            spring_constant: 000.0,
-            damping_constant: 00.0,
-            collision_constant: 1000.0,
+            breaking_angle: 0.1,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
-            spring_model: SpringModel::Linear,
-            collision_model: SpringModel::Linear,
-            floor: f32::NEG_INFINITY,
-            floor_restitution: 0.0,
+            collision_particle_radius: 0.5,
+            bond_radius: 0.5,
+            young_modulus: 1.0,
+            shear_modulus: 1.0,
+            collision_stiffness: 1.0,
             camera_position: Vec3::new(0.0, 0.0, 50.0),
             camera_target: Vec3::ZERO,
         }
@@ -126,7 +122,7 @@ pub struct LoadedParticle {
     pub velocity: Vec3,
     pub bond_start: u32,
     pub bond_count: u32,
-    pub inv_mass: f32,
+    pub mass: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,10 +148,10 @@ impl Scene {
                 velocity: object.velocity + object.angle * p.velocity,
                 bond_start: p.bond_start + bond_offset,
                 bond_count: p.bond_count,
-                inv_mass: if p.fixed && !object.unfix {
-                    0.0
+                mass: if p.fixed && !object.unfix {
+                    f32::INFINITY
                 } else {
-                    1.0 / object.mass
+                    object.mass
                 },
             }));
             bonds.extend(obj_bonds.into_iter().map(|mut b| {

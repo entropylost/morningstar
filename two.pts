@@ -1,0 +1,14 @@
+(
+    particles: [(
+        position: (0.0, 0.0, 0.0),
+        velocity: (0.0, 0.1, 0.1),
+        bond_start: 0,
+        bond_count: 1,
+    ), (
+        position: (0.0, 0.0, 2.0),
+        velocity: (0.0, 0.1, -0.1),
+        bond_start: 1,
+        bond_count: 1,
+    )],
+    bonds: [(other_particle:1), (other_particle:0)]
+)

@@ -7,7 +7,7 @@ use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
 use bevy_sefirot::luisa::{InitKernel, LuisaDevice, LuisaPlugin};
-use luisa::lang::types::vector::Vec3 as LVec3;
+use luisa::lang::types::vector::{Vec3 as LVec3, Vec4 as LVec4};
 use luisa_compute::DeviceType;
 use sefirot::graph::{AsNodes as AsNodesExt, ComputeGraph};
 use sefirot::mapping::buffer::StaticDomain;
@@ -18,6 +18,8 @@ mod simulation;
 use simulation::*;
 pub mod data;
 use data::*;
+mod cosserat;
+mod utils;
 
 fn install_eyre() {
     use color_eyre::config::*;
@@ -118,7 +120,7 @@ fn setup(
             commands
                 .spawn(PbrBundle {
                     mesh: mesh.clone(),
-                    material: if particle.inv_mass == 0.0 {
+                    material: if particle.mass == f32::INFINITY {
                         fixed_material.clone()
                     } else {
                         material.clone()
@@ -161,23 +163,43 @@ fn setup(
     let render = ParticleBondData {
         bond_start: particles.iter().map(|p| p.bond_start).collect(),
         bond_count: particles.iter().map(|p| p.bond_count).collect(),
-        fixed: particles.iter().map(|p| p.inv_mass == 0.0).collect(),
+        fixed: particles.iter().map(|p| p.mass == f32::INFINITY).collect(),
+    };
+
+    let mut this_particle = vec![0u32; scene.bonds.len()];
+    for (ix, p) in particles.iter().enumerate() {
+        for i in p.bond_start..p.bond_start + p.bond_count {
+            this_particle[i as usize] = ix as u32;
+        }
+    }
+    let bonds = Bonds {
+        other_particle: device
+            .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
+        rest_rotation: device.create_buffer_from_fn(scene.bonds.len(), |i| {
+            let dir = particles[scene.bonds[i].other_particle as usize].position
+                - particles[this_particle[i] as usize].position;
+            let dir = dir.normalize();
+            let q = Quat::from_rotation_arc(Vec3::Z, dir);
+            LVec4::new(q.x, q.y, q.z, q.w)
+        }),
+        length: device.create_buffer_from_fn(scene.bonds.len(), |i| {
+            (particles[scene.bonds[i].other_particle as usize].position
+                - particles[this_particle[i] as usize].position)
+                .length()
+        }),
     };
 
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
-        position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        predicted_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        displacement: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
-        rest_position: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        linpos: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        angpos: device.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
+        last_linpos: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        last_angpos: device.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
+        linvel: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
+        angvel: device.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
-        inv_mass: device.create_buffer_from_fn(l, |i| particles[i].inv_mass),
-    };
-    let bonds = Bonds {
-        other_particle: device
-            .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
-        multiplier: device.create_buffer_from_fn(scene.bonds.len(), |i| 0.0),
+        mass: device.create_buffer_from_fn(l, |i| particles[i].mass),
     };
     let grid_size = constants.grid_size.element_product() as usize;
     let grid = Grid {
@@ -236,7 +258,7 @@ fn update_render(
     particles: Res<simulation::Particles>,
     mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
 ) {
-    let positions = particles.position.copy_to_vec();
+    let positions = particles.linpos.copy_to_vec();
     let bonds = bonds.other_particle.copy_to_vec();
 
     for (particle, mut transform, mut visible) in query.iter_mut() {

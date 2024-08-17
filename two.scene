@@ -1,0 +1,25 @@
+Scene(
+    objects: [
+        (
+            color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:1.0)),
+            particles: "block.pts",
+        ),
+        (
+            color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
+            particles: "ball.pts",
+            position: (0.0, 0.0, 20.0),
+            velocity: (0.0, 0.0, -10.0),
+        ),
+    ],
+    constants: (
+        substeps: 1,
+        dt: 0.0166666667,
+        breaking_distance: 100.0,
+        min_breaking_distance: 0.0,
+        breaking_angle: 0.0,
+        camera_position: (0.0, 0.0, 10.0),
+        young_modulus: 1.0,
+        shear_modulus: 1.0,
+        collision_stiffness: 0.1,
+    ),
+)
