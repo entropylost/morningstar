@@ -17,6 +17,8 @@ pub struct Particles {
 
     pub last_linpos: Buffer<Vec3>,
     pub last_angpos: Buffer<Vec4>,
+    pub last_linvel: Buffer<Vec3>,
+    pub last_angvel: Buffer<Vec3>,
 
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
@@ -118,7 +120,7 @@ pub fn solve_kernel(
             )
         };
 
-        for bond in 0_u32.expr()..0_u32.expr() {
+        for bond in bond_start..bond_start + bond_count {
             let other = bonds.other_particle.read(bond);
             if other == u32::MAX {
                 continue;
@@ -180,9 +182,18 @@ pub fn solve_kernel(
             }
         });
 
-        let linvel = particles.linvel.read(*index) + linforce / (m + lingrad2);
-        let angvel = particles.angvel.read(*index) + angforce / (moment + anggrad2);
+        let last_linvel = particles.last_linvel.read(*index);
+        let linvel = particles.linvel.read(*index);
+        let linvel = linvel
+            + constants.constraint_step * (linforce - m * (linvel - last_linvel)) / (m + lingrad2);
         particles.linvel.write(*index, linvel);
+
+        let last_angvel = particles.last_angvel.read(*index);
+        let angvel = particles.angvel.read(*index);
+
+        let angvel = angvel
+            + constants.constraint_step * (angforce - moment * (angvel - last_angvel))
+                / (moment + anggrad2);
         particles.angvel.write(*index, angvel);
     })
 }
@@ -191,15 +202,31 @@ pub fn solve_kernel(
 pub fn predict_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
     Kernel::build(&device, &particles.domain, &|index| {
         let linvel = particles.linvel.read(*index);
-        let linpos = particles.last_linpos.read(*index) + linvel;
+        let linpos = particles.linpos.read(*index);
         let next_linpos = linpos + linvel;
         particles.last_linpos.write(*index, linpos);
         particles.linpos.write(*index, next_linpos);
+        particles.last_linvel.write(*index, linvel);
+
         let angvel = particles.angvel.read(*index);
-        let angpos = step_pos_ang(particles.last_angpos.read(*index), angvel);
+        let angpos = particles.angpos.read(*index);
         let next_angpos = step_pos_ang(angpos, angvel);
         particles.last_angpos.write(*index, angpos);
         particles.angpos.write(*index, next_angpos);
+        particles.last_angvel.write(*index, angvel);
+    })
+}
+
+#[kernel(init(pub))]
+pub fn solve_update_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
+    Kernel::build(&device, &particles.domain, &|index| {
+        let linvel = particles.linvel.read(*index);
+        let linpos = particles.last_linpos.read(*index) + linvel;
+        particles.linpos.write(*index, linpos);
+
+        let angvel = particles.angvel.read(*index);
+        let angpos = step_pos_ang(particles.last_angpos.read(*index), angvel);
+        particles.angpos.write(*index, angpos);
     })
 }
 
@@ -214,13 +241,17 @@ pub fn step(
     }
     let commands = (0..constants.substeps)
         .map(|_| {
+            let solve_iters = (0..constants.iterations)
+                .map(|_| (solve_kernel.dispatch(), solve_update_kernel.dispatch()).chain())
+                .collect::<Vec<_>>()
+                .chain();
             (
                 predict_kernel.dispatch(),
                 reset_grid_kernel.dispatch(),
                 count_kernel.dispatch(),
                 compute_offset_kernel.dispatch(),
                 add_particle_kernel.dispatch(),
-                solve_kernel.dispatch(),
+                solve_iters,
             )
                 .chain()
         })

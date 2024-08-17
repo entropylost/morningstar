@@ -80,6 +80,7 @@ pub fn main() {
                 init_compute_offset_kernel,
                 init_predict_kernel,
                 init_solve_kernel,
+                init_solve_update_kernel,
             ),
         )
         .add_systems(Update, (step, update_ui, update_render).chain())
@@ -197,6 +198,8 @@ fn setup(
         last_angpos: device.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
         linvel: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
         angvel: device.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
+        last_linvel: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
+        last_angvel: device.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
         bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
         mass: device.create_buffer_from_fn(l, |i| particles[i].mass),
@@ -227,14 +230,20 @@ struct Controls {
     slice_position: f32,
     running: bool,
     visualize_bonds: bool,
+    remove_singletons: bool,
+    lock: bool,
+    render_hidden_bonds: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
         Self {
             slice: false,
             running: false,
-            slice_position: 0.01, // mostly to get r-a to shut up.
+            slice_position: 0.0,
             visualize_bonds: false,
+            remove_singletons: false,
+            lock: false,
+            render_hidden_bonds: true,
         }
     }
 }
@@ -247,6 +256,9 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
             egui::Slider::new(&mut controls.slice_position, -20.0..=20.0).text("Slice Position"),
         );
         ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
+        ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
+        ui.checkbox(&mut controls.lock, "Lock");
+        ui.checkbox(&mut controls.render_hidden_bonds, "Render Hidden Bonds");
     });
 }
 
@@ -258,29 +270,43 @@ fn update_render(
     particles: Res<simulation::Particles>,
     mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
 ) {
-    let positions = particles.linpos.copy_to_vec();
+    let positions = particles.last_linpos.copy_to_vec();
     let bonds = bonds.other_particle.copy_to_vec();
 
     for (particle, mut transform, mut visible) in query.iter_mut() {
-        if controls.slice && transform.translation.x > controls.slice_position {
-            *visible = Visibility::Hidden;
-        } else {
-            *visible = Visibility::Visible;
-        }
-        // Update nalgebra eventually.
+        let lock = controls.lock;
+
         let pos = positions[particle.index as usize];
         let pos = Vec3::new(pos.x, pos.y, pos.z);
+        if !lock {
+            if controls.slice && transform.translation.x > controls.slice_position {
+                *visible = Visibility::Hidden;
+            } else {
+                *visible = Visibility::Visible;
+            }
+        }
         transform.translation = pos;
-        if controls.visualize_bonds && !data.fixed[particle.index as usize] {
-            let start = data.bond_start[particle.index as usize] as usize;
-            let count = data.bond_count[particle.index as usize] as usize;
+        let start = data.bond_start[particle.index as usize] as usize;
+        let count = data.bond_count[particle.index as usize] as usize;
+        if (controls.remove_singletons || controls.visualize_bonds)
+            && !data.fixed[particle.index as usize]
+        {
+            let mut remove = true;
             for &bond in bonds.iter().skip(start).take(count) {
                 if bond != u32::MAX {
-                    let other = bond as usize;
-                    let other_pos = positions[other];
-                    let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
-                    gizmos.line(pos, other_pos, Color::WHITE);
+                    remove = false;
+                    if controls.visualize_bonds
+                        && (controls.render_hidden_bonds || *visible == Visibility::Visible)
+                    {
+                        let other = bond as usize;
+                        let other_pos = positions[other];
+                        let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
+                        gizmos.line(pos, other_pos, Color::WHITE);
+                    }
                 }
+            }
+            if !lock && remove && controls.remove_singletons {
+                *visible = Visibility::Hidden;
             }
         }
     }
