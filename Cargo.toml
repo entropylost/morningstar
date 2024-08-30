@@ -11,7 +11,11 @@ nalgebra = { version = "0.33.0", features = [
 ] }
 prism = { path = "../prism" }
 color-eyre = "0.6.2"
-sefirot = { path = "../sefirot/sefirot", features = ["bevy"] }
+sefirot = { path = "../sefirot/sefirot", features = [
+    "bevy",
+    "glam",
+    "nalgebra",
+] }
 sefirot_grid = { path = "../sefirot/sefirot_grid" }
 bevy_sefirot = { path = "../sefirot/bevy_sefirot" }
 bevy_egui = "0.28.0"
@@ -22,13 +26,8 @@ ron = "0.8.1"
 smallvec = "1.13.2"
 parking_lot = "0.12.3"
 
-
 [dependencies.bevy]
 version = "0.14.1"
-
-[dependencies.luisa_compute]
-git = "https://github.com/LuisaGroup/luisa-compute-rs"
-features = ["glam", "nalgebra"]
 
 [features]
 default = ["dylib"]
@@ -39,6 +38,3 @@ trace = ["bevy/trace_chrome", "bevy_sefirot/trace"]
 
 [profile.dev.package.'*']
 opt-level = 3
-
-[patch.'https://github.com/LuisaGroup/luisa-compute-rs']
-luisa_compute = { git = "https://github.com/iMplode-nZ/luisa-compute-rs" }

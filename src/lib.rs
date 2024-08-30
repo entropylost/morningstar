@@ -6,9 +6,8 @@ use bevy::render::RenderPlugin;
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
-use bevy_sefirot::luisa::{InitKernel, LuisaDevice, LuisaPlugin};
+use bevy_sefirot::luisa::{InitKernel, LuisaPlugin};
 use luisa::lang::types::vector::{Vec3 as LVec3, Vec4 as LVec4};
-use luisa_compute::DeviceType;
 use sefirot::graph::{AsNodes as AsNodesExt, ComputeGraph};
 use sefirot::mapping::buffer::StaticDomain;
 use sefirot::prelude::*;
@@ -66,10 +65,7 @@ pub fn main() {
             sensitivity: 0.00015,
             speed: 30.0,
         })
-        .add_plugins(LuisaPlugin {
-            device: DeviceType::Cuda,
-            ..default()
-        })
+        .add_plugins(LuisaPlugin)
         .add_systems(Startup, setup)
         .add_systems(
             InitKernel,
@@ -93,7 +89,6 @@ fn lv(a: Vec3) -> LVec3<f32> {
 
 fn setup(
     mut commands: Commands,
-    device: Res<LuisaDevice>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -174,16 +169,16 @@ fn setup(
         }
     }
     let bonds = Bonds {
-        other_particle: device
+        other_particle: DEVICE
             .create_buffer_from_fn(scene.bonds.len(), |i| scene.bonds[i].other_particle),
-        rest_rotation: device.create_buffer_from_fn(scene.bonds.len(), |i| {
+        rest_rotation: DEVICE.create_buffer_from_fn(scene.bonds.len(), |i| {
             let dir = particles[scene.bonds[i].other_particle as usize].position
                 - particles[this_particle[i] as usize].position;
             let dir = dir.normalize();
             let q = Quat::from_rotation_arc(Vec3::Z, dir);
             LVec4::new(q.x, q.y, q.z, q.w)
         }),
-        length: device.create_buffer_from_fn(scene.bonds.len(), |i| {
+        length: DEVICE.create_buffer_from_fn(scene.bonds.len(), |i| {
             (particles[scene.bonds[i].other_particle as usize].position
                 - particles[this_particle[i] as usize].position)
                 .length()
@@ -192,25 +187,25 @@ fn setup(
 
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
-        linpos: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        angpos: device.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
-        last_linpos: device.create_buffer_from_fn(l, |i| lv(particles[i].position)),
-        last_angpos: device.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
-        linvel: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
-        angvel: device.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
-        last_linvel: device.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
-        last_angvel: device.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
-        bond_start: device.create_buffer_from_fn(l, |i| particles[i].bond_start),
-        bond_count: device.create_buffer_from_fn(l, |i| particles[i].bond_count),
-        mass: device.create_buffer_from_fn(l, |i| particles[i].mass),
+        linpos: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
+        last_linpos: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        last_angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
+        linvel: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
+        angvel: DEVICE.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
+        last_linvel: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
+        last_angvel: DEVICE.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
+        bond_start: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_start),
+        bond_count: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_count),
+        mass: DEVICE.create_buffer_from_fn(l, |i| particles[i].mass),
     };
     let grid_size = constants.grid_size.element_product() as usize;
     let grid = Grid {
         domain: StaticDomain::<1>::new(grid_size as u32),
-        count: device.create_buffer(grid_size),
-        offset: device.create_buffer(grid_size),
-        particles: device.create_buffer(l),
-        next_block: device.create_buffer(1),
+        count: DEVICE.create_buffer(grid_size),
+        offset: DEVICE.create_buffer(grid_size),
+        particles: DEVICE.create_buffer(l),
+        next_block: DEVICE.create_buffer(1),
     };
     commands.insert_resource(render);
     commands.insert_resource(particles);

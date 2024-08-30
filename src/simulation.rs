@@ -64,19 +64,19 @@ pub fn neighbors(grid: &Grid, constants: &Constants, position: Expr<Vec3>, f: im
 
 #[kernel(init(pub))]
 pub fn solve_kernel(
-    device: Res<LuisaDevice>,
     particles: Res<Particles>,
     bonds: Res<Bonds>,
     grid: Res<Grid>,
     constants: Res<Constants>,
-) -> Kernel<fn()> {
+) -> Kernel<fn(bool)> {
+    let dt2 = constants.dt * constants.dt;
     let bend_twist_coeff = {
         let i = PI * constants.bond_radius.powi(4) / 4.0;
         let j = PI * constants.bond_radius.powi(4) / 2.0;
         Vec3::new(
-            constants.young_modulus * i,
-            constants.young_modulus * i,
-            constants.shear_modulus * j,
+            constants.young_modulus * i * dt2,
+            constants.young_modulus * i * dt2,
+            constants.shear_modulus * j * dt2,
         )
     };
 
@@ -84,13 +84,13 @@ pub fn solve_kernel(
         let s = PI * constants.bond_radius.powi(2);
         let a = 5.0_f32 / 6.0 * s;
         Vec3::new(
-            constants.shear_modulus * a,
-            constants.shear_modulus * a,
-            constants.young_modulus * s,
+            constants.shear_modulus * a * dt2,
+            constants.shear_modulus * a * dt2,
+            constants.young_modulus * s * dt2,
         )
     };
 
-    Kernel::build(&device, &particles.domain, &|index| {
+    Kernel::build(&particles.domain, &|index, break_bonds| {
         let m = particles.mass.read(*index);
         if m == f32::INFINITY {
             return;
@@ -140,15 +140,6 @@ pub fn solve_kernel(
 
             let current_length = pdiff.length();
 
-            if current_length > constants.breaking_distance * length
-                || (constants.min_breaking_distance != 0.0
-                    && current_length < constants.min_breaking_distance * length)
-                || (constants.breaking_angle != 0.0 && qdiff.length() > constants.breaking_angle)
-            {
-                bonds.other_particle.write(bond, u32::MAX);
-                continue;
-            }
-
             let outputs = cosserat::compute(
                 bend_twist_coeff,
                 stretch_shear_coeff,
@@ -160,6 +151,30 @@ pub fn solve_kernel(
                 qdiff,
             );
 
+            if break_bonds {
+                let normal = pdiff / current_length;
+                let normal_force = outputs.se_lin_force.dot(normal);
+                let shear_force = (outputs.se_lin_force - normal_force * normal).norm();
+                let twist_torque = outputs.bt_ang_force.dot(normal);
+                let bend_torque = (outputs.bt_ang_force - twist_torque * normal).norm();
+
+                let normal_stress = -normal_force
+                    / (5.0_f32 / 6.0 * PI * constants.bond_radius.powi(2))
+                    + bend_torque * constants.bond_radius
+                        / (PI * constants.bond_radius.powi(4) / 4.0);
+                let shear_stress = 4.0 * shear_force / (3.0 * PI * constants.bond_radius.powi(2))
+                    + twist_torque.abs() * constants.bond_radius
+                        / (PI * constants.bond_radius.powi(4) / 2.0);
+
+                if normal_stress > constants.max_normal_stress * dt2
+                    || shear_stress > constants.max_shear_stress * dt2
+                {
+                    bonds.other_particle.write(bond, u32::MAX);
+                    // NOTE: We have an assymmetry in the bond breaking logic, but that should be corrected.
+                    continue;
+                }
+            }
+
             *linforce += outputs.se_lin_force;
             *angforce += outputs.se_ang_force + outputs.bt_ang_force;
             *lingrad2 += outputs.se_lin_grad2;
@@ -168,6 +183,7 @@ pub fn solve_kernel(
 
         neighbors(&grid, &constants, linpos, |other| {
             if other != *index {
+                let collision_stiffness = constants.collision_stiffness * dt2;
                 let pj = particles.linpos.read(other);
                 let pdiff = pj - pi;
                 let pnorm = pdiff.length();
@@ -175,9 +191,9 @@ pub fn solve_kernel(
                     let n = pdiff / pnorm;
 
                     *linforce -= n
-                        * constants.collision_stiffness
+                        * collision_stiffness
                         * (2.0 * constants.collision_particle_radius - pnorm);
-                    *lingrad2 += n * n * constants.collision_stiffness;
+                    *lingrad2 += n * n * collision_stiffness;
                 }
             }
         });
@@ -199,8 +215,8 @@ pub fn solve_kernel(
 }
 
 #[kernel(init(pub))]
-pub fn predict_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
-    Kernel::build(&device, &particles.domain, &|index| {
+pub fn predict_kernel(particles: Res<Particles>) -> Kernel<fn()> {
+    Kernel::build(&particles.domain, &|index| {
         let linvel = particles.linvel.read(*index);
         let linpos = particles.linpos.read(*index);
         let next_linpos = linpos + linvel;
@@ -218,8 +234,8 @@ pub fn predict_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Ke
 }
 
 #[kernel(init(pub))]
-pub fn solve_update_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) -> Kernel<fn()> {
-    Kernel::build(&device, &particles.domain, &|index| {
+pub fn solve_update_kernel(particles: Res<Particles>) -> Kernel<fn()> {
+    Kernel::build(&particles.domain, &|index| {
         let linvel = particles.linvel.read(*index);
         let linpos = particles.last_linpos.read(*index) + linvel;
         particles.linpos.write(*index, linpos);
@@ -230,19 +246,20 @@ pub fn solve_update_kernel(device: Res<LuisaDevice>, particles: Res<Particles>) 
     })
 }
 
-pub fn step(
-    device: Res<LuisaDevice>,
-    constants: Res<Constants>,
-    controls: Res<Controls>,
-    ev: Res<ButtonInput<KeyCode>>,
-) {
+pub fn step(constants: Res<Constants>, controls: Res<Controls>, ev: Res<ButtonInput<KeyCode>>) {
     if !controls.running && !ev.just_pressed(KeyCode::Period) {
         return;
     }
     let commands = (0..constants.substeps)
         .map(|_| {
-            let solve_iters = (0..constants.iterations)
-                .map(|_| (solve_kernel.dispatch(), solve_update_kernel.dispatch()).chain())
+            let solve_iters = (0..constants.iterations - 1)
+                .map(|_| {
+                    (
+                        solve_kernel.dispatch(&false),
+                        solve_update_kernel.dispatch(),
+                    )
+                        .chain()
+                })
                 .collect::<Vec<_>>()
                 .chain();
             (
@@ -252,6 +269,8 @@ pub fn step(
                 compute_offset_kernel.dispatch(),
                 add_particle_kernel.dispatch(),
                 solve_iters,
+                solve_kernel.dispatch(&true),
+                solve_update_kernel.dispatch(),
             )
                 .chain()
         })
@@ -259,7 +278,7 @@ pub fn step(
         .chain();
     #[cfg(feature = "timed")]
     {
-        let timings = ComputeGraph::new(&device).add(commands).execute_timed();
+        let timings = ComputeGraph::new().add(commands).execute_timed();
         let step_times = timings
             .iter()
             .filter_map(|(name, time)| (name == "step_kernel").then_some(time))
@@ -273,13 +292,13 @@ pub fn step(
     }
     #[cfg(not(feature = "timed"))]
     {
-        ComputeGraph::new(&device).add(commands).execute();
+        ComputeGraph::new().add(commands).execute();
     }
 }
 
 #[kernel(init(pub))]
-pub fn reset_grid_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kernel<fn()> {
-    Kernel::build(&device, &grid.domain, &|index| {
+pub fn reset_grid_kernel(grid: Res<Grid>) -> Kernel<fn()> {
+    Kernel::build(&grid.domain, &|index| {
         grid.count.write(*index, 0);
         if *index == 0 {
             grid.next_block.write(0, 0);
@@ -303,12 +322,11 @@ pub fn grid_cell(position: Expr<Vec3>, size: UVec3, scale: f32) -> Expr<u32> {
 
 #[kernel(init(pub))]
 pub fn count_kernel(
-    device: Res<LuisaDevice>,
     particles: Res<Particles>,
     grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &particles.domain, &|index| {
+    Kernel::build(&particles.domain, &|index| {
         let cell = grid_cell(
             particles.linpos.read(*index),
             constants.grid_size,
@@ -319,8 +337,8 @@ pub fn count_kernel(
 }
 
 #[kernel(init(pub))]
-pub fn compute_offset_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kernel<fn()> {
-    Kernel::build(&device, &grid.domain, &|index| {
+pub fn compute_offset_kernel(grid: Res<Grid>) -> Kernel<fn()> {
+    Kernel::build(&grid.domain, &|index| {
         let count = grid.count.read(*index);
         grid.offset
             .write(*index, grid.next_block.atomic_ref(0).fetch_add(count));
@@ -330,12 +348,11 @@ pub fn compute_offset_kernel(device: Res<LuisaDevice>, grid: Res<Grid>) -> Kerne
 
 #[kernel(init(pub))]
 pub fn add_particle_kernel(
-    device: Res<LuisaDevice>,
     particles: Res<Particles>,
     grid: Res<Grid>,
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &particles.domain, &|index| {
+    Kernel::build(&particles.domain, &|index| {
         let position = particles.linpos.read(*index);
         let cell = grid_cell(position, constants.grid_size, constants.grid_scale);
         let offset = grid.offset.read(cell) + grid.count.atomic_ref(cell).fetch_add(1);

@@ -13,6 +13,18 @@ pub struct CosseratOutputs {
     pub bt_ang_grad2: Vec3,
 }
 
+// #[repr(C)]
+// #[derive(Debug, Clone, Copy, Value, PartialEq)]
+// pub struct CosseratPbdOutputs {
+//     pub se_lin_force: Vec3,
+//     pub se_ang_force: Vec3,
+//     pub se_lin_grad2: Vec3,
+//     pub se_ang_grad2: Vec3,
+//     pub bt_ang_force: Vec3,
+//     pub bt_ang_grad2: Vec3,
+// }
+
+
 #[tracked]
 #[allow(clippy::too_many_arguments)]
 pub fn compute(
