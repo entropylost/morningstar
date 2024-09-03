@@ -1,12 +1,8 @@
 Scene(
     objects: [
-        // (
-        //     color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:1.0)),
-        //     particles: "two.pts",
-        // )
         (
             color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:1.0)),
-            particles: "thickblock.pts",
+            particles: "panel2.pts",
             // unfix: true,
         ),
         (
@@ -21,7 +17,6 @@ Scene(
         substeps: 5, // 5, 20 work pretty well.
         iterations: 1,
         dt: 0.016,
-        breaking_distance: 1.003,
         max_normal_stress: 50e8,
         max_shear_stress: 10e8,
         camera_position: (0.0, 0.0, 10.0),

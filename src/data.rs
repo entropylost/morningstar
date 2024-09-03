@@ -11,6 +11,7 @@ pub struct Constants {
     pub gravity: Vec3,
     pub max_normal_stress: f32,
     pub max_shear_stress: f32,
+    pub breaking_distance: f32,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
@@ -55,6 +56,7 @@ impl Default for Constants {
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             max_normal_stress: 100.0,
             max_shear_stress: 100.0,
+            breaking_distance: 1.001,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
@@ -166,7 +168,8 @@ impl Scene {
                 particle_count: count as u32,
             });
         }
-        let constants = self.constants;
+        let mut constants = self.constants;
+        constants.dt /= constants.substeps as f32;
         LoadedScene {
             particles,
             bonds,

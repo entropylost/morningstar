@@ -68,7 +68,7 @@ pub fn solve_kernel(
     bonds: Res<Bonds>,
     grid: Res<Grid>,
     constants: Res<Constants>,
-) -> Kernel<fn(bool)> {
+) -> Kernel<fn()> {
     let dt2 = constants.dt * constants.dt;
     let bend_twist_coeff = {
         let i = PI * constants.bond_radius.powi(4) / 4.0;
@@ -90,12 +90,12 @@ pub fn solve_kernel(
         )
     };
 
-    Kernel::build(&particles.domain, &|index, break_bonds| {
-        let m = particles.mass.read(*index);
-        if m == f32::INFINITY {
+    Kernel::build(&particles.domain, &|index| {
+        let mi = particles.mass.read(*index);
+        if mi == f32::INFINITY {
             return;
         }
-        let moment = 2.0_f32 / 5.0 * m * constants.particle_radius.powi(2);
+        let moi = 2.0_f32 / 5.0 * mi * constants.particle_radius.powi(2);
 
         let bond_start = particles.bond_start.read(*index);
         let bond_count = particles.bond_count.read(*index);
@@ -103,10 +103,8 @@ pub fn solve_kernel(
         let linpos = particles.linpos.read(*index);
         let angpos = particles.angpos.read(*index);
 
-        let linforce = Vec3::splat_expr(0.0).var();
-        let angforce = Vec3::splat_expr(0.0).var();
-        let lingrad2 = Vec3::splat_expr(0.0).var();
-        let anggrad2 = Vec3::splat_expr(0.0).var();
+        let linvel_delta = Vec3::splat_expr(0.0).var();
+        let angvel_delta = Vec3::splat_expr(0.0).var();
 
         let pi = linpos;
         let qi = angpos;
@@ -127,90 +125,73 @@ pub fn solve_kernel(
             }
 
             let other_linpos = particles.linpos.read(other);
+            let pj = other_linpos;
+            let pdiff = pj - pi;
+            let length = bonds.length.read(bond);
+
+            let current_length = pdiff.length();
+
+            if current_length / length > constants.breaking_distance {
+                bonds.other_particle.write(bond, u32::MAX);
+                continue;
+            }
+
+            let mj = particles.mass.read(other);
+            let moj = 2.0_f32 / 5.0 * mj * constants.particle_radius.powi(2);
+
             let other_angpos = particles.angpos.read(other);
 
-            let pj = other_linpos;
             let qj = other_angpos;
 
-            let pdiff = pj - pi;
             let qdiff = qj - qi;
 
             let length = bonds.length.read(bond);
             let qrest = bonds.rest_rotation.read(bond);
 
-            let current_length = pdiff.length();
-
-            let outputs = cosserat::compute_pd(
+            let outputs = cosserat::compute_pbd(
                 bend_twist_coeff,
                 stretch_shear_coeff,
                 length,
                 qrest,
                 g,
+                [mi, mj],
+                [moi, moj],
                 pdiff,
                 [qi, qj],
                 qdiff,
             );
 
-            if break_bonds {
-                let normal = pdiff / current_length;
-                let normal_force = outputs.se_lin_force.dot(normal);
-                let shear_force = (outputs.se_lin_force - normal_force * normal).norm();
-                let twist_torque = outputs.bt_ang_force.dot(normal);
-                let bend_torque = (outputs.bt_ang_force - twist_torque * normal).norm();
-
-                let normal_stress = -normal_force
-                    / (5.0_f32 / 6.0 * PI * constants.bond_radius.powi(2))
-                    + bend_torque * constants.bond_radius
-                        / (PI * constants.bond_radius.powi(4) / 4.0);
-                let shear_stress = 4.0 * shear_force / (3.0 * PI * constants.bond_radius.powi(2))
-                    + twist_torque.abs() * constants.bond_radius
-                        / (PI * constants.bond_radius.powi(4) / 2.0);
-
-                if normal_stress > constants.max_normal_stress * dt2
-                    || shear_stress > constants.max_shear_stress * dt2
-                {
-                    bonds.other_particle.write(bond, u32::MAX);
-                    // NOTE: We have an assymmetry in the bond breaking logic, but that should be corrected.
-                    continue;
-                }
-            }
-
-            *linforce += outputs.se_lin_force;
-            *angforce += outputs.se_ang_force + outputs.bt_ang_force;
-            *lingrad2 += outputs.se_lin_grad2;
-            *anggrad2 += outputs.se_ang_grad2 + outputs.bt_ang_grad2;
+            *linvel_delta += outputs.se_lin_delta;
+            *angvel_delta += outputs.se_ang_delta + outputs.bt_ang_delta;
         }
 
+        // TODO: I can remove self-collisions by subtracting this collision when iterating over bonds.
         neighbors(&grid, &constants, linpos, |other| {
             if other != *index {
                 let collision_stiffness = constants.collision_stiffness * dt2;
                 let pj = particles.linpos.read(other);
+                let mj = particles.mass.read(other);
                 let pdiff = pj - pi;
                 let pnorm = pdiff.length();
                 if pnorm <= 2.0 * constants.collision_particle_radius {
                     let n = pdiff / pnorm;
 
-                    *linforce -= n
-                        * collision_stiffness
-                        * (2.0 * constants.collision_particle_radius - pnorm);
-                    *lingrad2 += n * n * collision_stiffness;
+                    *linvel_delta -=
+                        mi.recip() * n * (2.0 * constants.collision_particle_radius - pnorm)
+                            / (mi.recip() + mj.recip() + collision_stiffness.recip());
                 }
             }
         });
 
-        let last_linvel = particles.last_linvel.read(*index);
-        let linvel = particles.linvel.read(*index);
-        let linvel = linvel
-            + constants.constraint_step * (linforce - m * (linvel - last_linvel)) / (m + lingrad2);
-        particles.linvel.write(*index, linvel);
+        particles.linvel.write(
+            *index,
+            particles.linvel.read(*index) + linvel_delta * bond_count.cast_f32().recip(),
+        );
 
-        let last_angvel = particles.last_angvel.read(*index);
-        let angvel = particles.angvel.read(*index);
-
-        let angvel = angvel
-            + constants.constraint_step * (angforce - moment * (angvel - last_angvel))
-                / (moment + anggrad2);
-        particles.angvel.write(*index, angvel);
+        particles.angvel.write(
+            *index,
+            particles.angvel.read(*index) + angvel_delta * bond_count.cast_f32().recip(),
+        );
     })
 }
 
@@ -252,24 +233,13 @@ pub fn step(constants: Res<Constants>, controls: Res<Controls>, ev: Res<ButtonIn
     }
     let commands = (0..constants.substeps)
         .map(|_| {
-            let solve_iters = (0..constants.iterations - 1)
-                .map(|_| {
-                    (
-                        solve_kernel.dispatch(&false),
-                        solve_update_kernel.dispatch(),
-                    )
-                        .chain()
-                })
-                .collect::<Vec<_>>()
-                .chain();
             (
                 predict_kernel.dispatch(),
                 reset_grid_kernel.dispatch(),
                 count_kernel.dispatch(),
                 compute_offset_kernel.dispatch(),
                 add_particle_kernel.dispatch(),
-                solve_iters,
-                solve_kernel.dispatch(&true),
+                solve_kernel.dispatch(),
                 solve_update_kernel.dispatch(),
             )
                 .chain()

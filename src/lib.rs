@@ -248,7 +248,7 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         ui.checkbox(&mut controls.running, "Running");
         ui.checkbox(&mut controls.slice, "Slice");
         ui.add(
-            egui::Slider::new(&mut controls.slice_position, -20.0..=20.0).text("Slice Position"),
+            egui::Slider::new(&mut controls.slice_position, -100.0..=100.0).text("Slice Position"),
         );
         ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");

@@ -164,12 +164,11 @@ pub fn compute_pbd(
     qrest: Expr<Vec4>,
     g: Expr<Mat4x3>,
     [mi, mj]: [Expr<f32>; 2],
+    [moi, moj]: [Expr<f32>; 2],
     pdiff: Expr<Vec3>,
     [qi, qj]: [Expr<Vec4>; 2],
     qdiff: Expr<Vec4>,
 ) -> Expr<CosseratPbdOutputs> {
-    let moi = 2.0_f32 / 5.0 * mi * 0.5 * 0.5; // TODO: Replace with radius.
-    let moj = 2.0_f32 / 5.0 * mj * 0.5 * 0.5; // TODO: Replace with radius.
     let qm = (qi + qj) / 2.0;
     let qm_norm = qm.norm();
     let qij = qm / qm_norm;
