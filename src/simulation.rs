@@ -138,13 +138,20 @@ pub fn solve_kernel(
 
             let current_length = pdiff.length();
 
-            if current_length / length > constants.breaking_distance
-                || (constants.min_breaking_distance != 0.0
-                    && current_length / length < constants.min_breaking_distance)
-                || (constants.breaking_angle != 0.0 && qdiff.norm() > constants.breaking_angle)
+            if let BreakingModel::Distance {
+                max: breaking_distance,
+                min: min_breaking_distance,
+                angle: breaking_angle,
+            } = constants.breaking_model
             {
-                bonds.other_particle.write(bond, u32::MAX);
-                continue;
+                let l = current_length / length;
+                if (breaking_distance != 0.0 && l > breaking_distance)
+                    || (min_breaking_distance != 0.0 && l < min_breaking_distance)
+                    || (breaking_angle != 0.0 && qdiff.norm() > breaking_angle)
+                {
+                    bonds.other_particle.write(bond, u32::MAX);
+                    continue;
+                }
             }
 
             *active_bonds += 1;
@@ -166,6 +173,33 @@ pub fn solve_kernel(
                 [qi, qj],
                 qdiff,
             );
+
+            if let BreakingModel::Stress {
+                normal: max_normal_stress,
+                shear: max_shear_stress,
+            } = constants.breaking_model
+            {
+                let normal = pdiff / current_length;
+                let normal_force = outputs.se_lin_delta.dot(normal);
+                let shear_force = (outputs.se_lin_delta - normal_force * normal).norm();
+                let twist_torque = outputs.bt_ang_delta.dot(normal);
+                let bend_torque = (outputs.bt_ang_delta - twist_torque * normal).norm();
+
+                let normal_stress = normal_force
+                    / (5.0_f32 / 6.0 * PI * constants.bond_radius.powi(2))
+                    + bend_torque * constants.bond_radius
+                        / (PI * constants.bond_radius.powi(4) / 4.0);
+                let shear_stress = 4.0 * shear_force / (3.0 * PI * constants.bond_radius.powi(2))
+                    + twist_torque.abs() * constants.bond_radius
+                        / (PI * constants.bond_radius.powi(4) / 2.0);
+
+                if normal_stress > max_normal_stress * dt2 || shear_stress > max_shear_stress * dt2
+                {
+                    bonds.other_particle.write(bond, u32::MAX);
+                    // NOTE: We have an assymmetry in the bond breaking logic, but that should be corrected.
+                    continue;
+                }
+            }
 
             *linvel_delta += outputs.se_lin_delta;
             *angvel_delta += outputs.se_ang_delta + outputs.bt_ang_delta;

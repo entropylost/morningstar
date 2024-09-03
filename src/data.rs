@@ -8,9 +8,7 @@ pub struct Constants {
     pub substeps: u32,
     pub dt: f32,
     pub gravity: Vec3,
-    pub breaking_distance: f32,
-    pub min_breaking_distance: f32,
-    pub breaking_angle: f32,
+    pub breaking_model: BreakingModel,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
@@ -22,6 +20,22 @@ pub struct Constants {
     pub constraint_step: ConstraintStepModel,
     pub camera_position: Vec3,
     pub camera_target: Vec3,
+}
+
+#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
+pub enum BreakingModel {
+    Distance {
+        #[serde(default)]
+        max: f32,
+        #[serde(default)]
+        min: f32,
+        #[serde(default)]
+        angle: f32,
+    },
+    Stress {
+        normal: f32,
+        shear: f32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
@@ -60,9 +74,11 @@ impl Default for Constants {
             substeps: 1,
             dt: 1.0 / 600.0,
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
-            breaking_distance: 1.001,
-            min_breaking_distance: 0.0,
-            breaking_angle: 0.0,
+            breaking_model: BreakingModel::Distance {
+                max: 1.001,
+                min: 0.0,
+                angle: 0.0,
+            },
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,

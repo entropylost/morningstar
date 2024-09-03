@@ -21,6 +21,7 @@ Scene(
         substeps: 20,
         dt: 0.016,
         camera_position: (0.0, 0.0, 10.0),
+        breaking_model: Distance ( max: 1.001 ),
         young_modulus: inf,
         shear_modulus: inf,
         collision_stiffness: inf,
