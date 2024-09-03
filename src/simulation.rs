@@ -118,6 +118,8 @@ pub fn solve_kernel(
             )
         };
 
+        let active_bonds = 0_u32.var();
+
         for bond in bond_start..bond_start + bond_count {
             let other = bonds.other_particle.read(bond);
             if other == u32::MAX {
@@ -131,10 +133,15 @@ pub fn solve_kernel(
 
             let current_length = pdiff.length();
 
-            if current_length / length > constants.breaking_distance {
+            if current_length / length > constants.breaking_distance
+                || (constants.min_breaking_distance != 0.0
+                    && current_length / length < constants.min_breaking_distance)
+            {
                 bonds.other_particle.write(bond, u32::MAX);
                 continue;
             }
+
+            *active_bonds += 1;
 
             let mj = particles.mass.read(other);
             let moj = 2.0_f32 / 5.0 * mj * constants.particle_radius.powi(2);
@@ -183,14 +190,20 @@ pub fn solve_kernel(
             }
         });
 
+        let constraint_step = match constants.constraint_step {
+            ConstraintStepModel::Factor(f) => f.expr(),
+            ConstraintStepModel::StartingBondCount => luisa::max(bond_count, 1).cast_f32().recip(),
+            ConstraintStepModel::CurrentBondCount => luisa::max(active_bonds, 1).cast_f32().recip(),
+        };
+
         particles.linvel.write(
             *index,
-            particles.linvel.read(*index) + linvel_delta * bond_count.cast_f32().recip(),
+            particles.linvel.read(*index) + linvel_delta * constraint_step,
         );
 
         particles.angvel.write(
             *index,
-            particles.angvel.read(*index) + angvel_delta * bond_count.cast_f32().recip(),
+            particles.angvel.read(*index) + angvel_delta * constraint_step,
         );
     })
 }

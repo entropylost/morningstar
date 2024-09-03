@@ -87,6 +87,12 @@ fn lv(a: Vec3) -> LVec3<f32> {
     LVec3::new(a.x, a.y, a.z)
 }
 
+#[derive(Resource)]
+struct Palette {
+    materials: Vec<Vec<Handle<StandardMaterial>>>,
+    fixed: Vec<Handle<StandardMaterial>>,
+}
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -100,16 +106,26 @@ fn setup(
 
     let mesh = meshes.add(Sphere::new(0.5));
 
-    for object in &scene.objects {
-        let material = materials.add(StandardMaterial {
-            base_color: object.color,
+    let mut palette = vec![];
+    let mut fixed = vec![];
+    for (i, object) in scene.objects.iter().enumerate() {
+        let mut object_palette = vec![];
+        let base = Lcha::from(object.color);
+        for i in 0..20 {
+            let color = base.with_lightness(base.lightness + 0.1 * (i as f32).powf(0.7));
+            let material = materials.add(StandardMaterial {
+                base_color: color.into(),
+                perceptual_roughness: 1.0,
+                ..default()
+            });
+            object_palette.push(material);
+        }
+        let fixed_material = materials.add(StandardMaterial {
+            base_color: base.mix(&Color::BLACK.into(), 0.3).into(),
             perceptual_roughness: 1.0,
             ..default()
         });
-        let fixed_material = materials.add(StandardMaterial {
-            base_color: object.color.mix(&Color::BLACK, 0.5),
-            ..default()
-        });
+        fixed.push(fixed_material.clone());
 
         for index in object.particle_start..object.particle_start + object.particle_count {
             let particle = &scene.particles[index as usize];
@@ -119,14 +135,22 @@ fn setup(
                     material: if particle.mass == f32::INFINITY {
                         fixed_material.clone()
                     } else {
-                        material.clone()
+                        object_palette[0].clone()
                     },
                     transform: Transform::from_translation(particle.position),
                     ..default()
                 })
-                .insert(ObjectParticle { index });
+                .insert(ObjectParticle {
+                    index,
+                    object: i as u32,
+                });
         }
+        palette.push(object_palette);
     }
+    commands.insert_resource(Palette {
+        materials: palette,
+        fixed,
+    });
 
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
@@ -217,6 +241,7 @@ fn setup(
 #[derive(Debug, Component)]
 struct ObjectParticle {
     index: u32,
+    object: u32,
 }
 
 #[derive(Debug, Resource)]
@@ -228,6 +253,7 @@ struct Controls {
     remove_singletons: bool,
     lock: bool,
     render_hidden_bonds: bool,
+    render_absolute: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -239,6 +265,7 @@ impl Default for Controls {
             remove_singletons: false,
             lock: false,
             render_hidden_bonds: true,
+            render_absolute: false,
         }
     }
 }
@@ -254,6 +281,7 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
         ui.checkbox(&mut controls.lock, "Lock");
         ui.checkbox(&mut controls.render_hidden_bonds, "Render Hidden Bonds");
+        ui.checkbox(&mut controls.render_absolute, "Use Absolute Bond Colors");
     });
 }
 
@@ -263,12 +291,18 @@ fn update_render(
     data: Res<ParticleBondData>,
     bonds: Res<Bonds>,
     particles: Res<simulation::Particles>,
-    mut query: Query<(&ObjectParticle, &mut Transform, &mut Visibility)>,
+    palette: Res<Palette>,
+    mut query: Query<(
+        &ObjectParticle,
+        &mut Transform,
+        &mut Visibility,
+        &mut Handle<StandardMaterial>,
+    )>,
 ) {
     let positions = particles.last_linpos.copy_to_vec();
     let bonds = bonds.other_particle.copy_to_vec();
 
-    for (particle, mut transform, mut visible) in query.iter_mut() {
+    for (particle, mut transform, mut visible, mut material) in query.iter_mut() {
         let lock = controls.lock;
 
         let pos = positions[particle.index as usize];
@@ -283,27 +317,40 @@ fn update_render(
         transform.translation = pos;
         let start = data.bond_start[particle.index as usize] as usize;
         let count = data.bond_count[particle.index as usize] as usize;
-        if (controls.remove_singletons || controls.visualize_bonds)
-            && !data.fixed[particle.index as usize]
-        {
-            let mut remove = true;
-            for &bond in bonds.iter().skip(start).take(count) {
-                if bond != u32::MAX {
-                    remove = false;
-                    if controls.visualize_bonds
-                        && (controls.render_hidden_bonds || *visible == Visibility::Visible)
-                    {
-                        let other = bond as usize;
-                        let other_pos = positions[other];
-                        let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
-                        gizmos.line(pos, other_pos, Color::WHITE);
-                    }
+
+        let mut num_bonds = 0;
+
+        for &bond in bonds.iter().skip(start).take(count) {
+            if bond != u32::MAX {
+                num_bonds += 1;
+                if controls.visualize_bonds
+                    && (controls.render_hidden_bonds || *visible == Visibility::Visible)
+                {
+                    let other = bond as usize;
+                    let other_pos = positions[other];
+                    let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
+                    gizmos.line(pos, other_pos, Color::WHITE);
                 }
             }
-            if !lock && remove && controls.remove_singletons {
-                *visible = Visibility::Hidden;
-            }
         }
+        if !lock && num_bonds == 0 && controls.remove_singletons {
+            *visible = Visibility::Hidden;
+        }
+        let material_index = ((1.0
+            - num_bonds as f32
+                / if controls.render_absolute {
+                    16.0
+                } else {
+                    count as f32
+                })
+            * 19.99)
+            .clamp(0.0, 19.99)
+            .floor() as usize;
+        *material = if data.fixed[particle.index as usize] {
+            palette.fixed[particle.object as usize].clone()
+        } else {
+            palette.materials[particle.object as usize][material_index].clone()
+        };
     }
 }
 

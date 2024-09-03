@@ -6,12 +6,10 @@ use super::*;
 #[serde(default)]
 pub struct Constants {
     pub substeps: u32,
-    pub iterations: u32,
     pub dt: f32,
     pub gravity: Vec3,
-    pub max_normal_stress: f32,
-    pub max_shear_stress: f32,
     pub breaking_distance: f32,
+    pub min_breaking_distance: f32,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
@@ -20,10 +18,18 @@ pub struct Constants {
     pub young_modulus: f32,
     pub shear_modulus: f32,
     pub collision_stiffness: f32,
-    pub constraint_step: f32,
+    pub constraint_step: ConstraintStepModel,
     pub camera_position: Vec3,
     pub camera_target: Vec3,
 }
+
+#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
+pub enum ConstraintStepModel {
+    StartingBondCount,
+    CurrentBondCount,
+    Factor(f32),
+}
+
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize, Default)]
 pub enum SpringModel {
     #[default]
@@ -51,21 +57,19 @@ impl Default for Constants {
     fn default() -> Self {
         Self {
             substeps: 1,
-            iterations: 10,
             dt: 1.0 / 600.0,
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
-            max_normal_stress: 100.0,
-            max_shear_stress: 100.0,
             breaking_distance: 1.001,
+            min_breaking_distance: 0.0,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
-            collision_particle_radius: 0.5,
+            collision_particle_radius: 0.49,
             bond_radius: 0.5,
             young_modulus: 1.0,
             shear_modulus: 1.0,
             collision_stiffness: 1.0,
-            constraint_step: 1.0,
+            constraint_step: ConstraintStepModel::Factor(1.0 / 16.0),
             camera_position: Vec3::new(0.0, 0.0, 50.0),
             camera_target: Vec3::ZERO,
         }

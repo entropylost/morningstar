@@ -19,16 +19,12 @@ Scene(
     ],
     constants: (
         substeps: 5, // 5, 20 work pretty well.
-        iterations: 1,
         dt: 0.016,
-        breaking_distance: 1.003,
-        max_normal_stress: 50e8,
-        max_shear_stress: 10e8,
+        breaking_distance: 1.001, // 1.001
         camera_position: (0.0, 0.0, 10.0),
         young_modulus: inf,
         shear_modulus: inf,
         collision_stiffness: inf,
-        constraint_step: 0.1,
         collision_particle_radius: 0.49,
         grid_size: (80, 80, 20),
 
