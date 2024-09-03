@@ -140,7 +140,7 @@ pub fn solve_kernel(
 
             let current_length = pdiff.length();
 
-            let outputs = cosserat::compute(
+            let outputs = cosserat::compute_pd(
                 bend_twist_coeff,
                 stretch_shear_coeff,
                 length,
