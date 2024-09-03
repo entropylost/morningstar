@@ -127,8 +127,13 @@ pub fn solve_kernel(
             }
 
             let other_linpos = particles.linpos.read(other);
+            let other_angpos = particles.angpos.read(other);
             let pj = other_linpos;
+            let qj = other_angpos;
+
             let pdiff = pj - pi;
+            let qdiff = qj - qi;
+
             let length = bonds.length.read(bond);
 
             let current_length = pdiff.length();
@@ -136,6 +141,7 @@ pub fn solve_kernel(
             if current_length / length > constants.breaking_distance
                 || (constants.min_breaking_distance != 0.0
                     && current_length / length < constants.min_breaking_distance)
+                || (constants.breaking_angle != 0.0 && qdiff.norm() > constants.breaking_angle)
             {
                 bonds.other_particle.write(bond, u32::MAX);
                 continue;
@@ -146,13 +152,6 @@ pub fn solve_kernel(
             let mj = particles.mass.read(other);
             let moj = 2.0_f32 / 5.0 * mj * constants.particle_radius.powi(2);
 
-            let other_angpos = particles.angpos.read(other);
-
-            let qj = other_angpos;
-
-            let qdiff = qj - qi;
-
-            let length = bonds.length.read(bond);
             let qrest = bonds.rest_rotation.read(bond);
 
             let outputs = cosserat::compute_pbd(

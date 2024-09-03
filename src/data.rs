@@ -10,6 +10,7 @@ pub struct Constants {
     pub gravity: Vec3,
     pub breaking_distance: f32,
     pub min_breaking_distance: f32,
+    pub breaking_angle: f32,
     pub grid_size: UVec3,
     pub grid_scale: f32,
     pub particle_radius: f32,
@@ -61,6 +62,7 @@ impl Default for Constants {
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             breaking_distance: 1.001,
             min_breaking_distance: 0.0,
+            breaking_angle: 0.0,
             grid_size: UVec3::splat(40),
             grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,

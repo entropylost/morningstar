@@ -20,8 +20,9 @@ Scene(
     constants: (
         substeps: 10, // 5, 20 work pretty well.
         dt: 0.016,
-        breaking_distance: 1.001,
-        min_breaking_distance: 0.99,
+        // breaking_distance: 1.001,
+        // min_breaking_distance: 0.99,
+        breaking_angle: 0.02,
         camera_position: (0.0, 0.0, 10.0),
         young_modulus: inf,
         shear_modulus: inf,

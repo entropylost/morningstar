@@ -110,9 +110,9 @@ fn setup(
     let mut fixed = vec![];
     for (i, object) in scene.objects.iter().enumerate() {
         let mut object_palette = vec![];
-        let base = Lcha::from(object.color);
+        let base = Oklcha::from(object.color);
         for i in 0..20 {
-            let color = base.with_lightness(base.lightness + 0.1 * (i as f32).powf(0.7));
+            let color = base.with_lightness(base.lightness + 0.01 * (i as f32).powf(1.6));
             let material = materials.add(StandardMaterial {
                 base_color: color.into(),
                 perceptual_roughness: 1.0,
@@ -320,37 +320,35 @@ fn update_render(
 
         let mut num_bonds = 0;
 
-        for &bond in bonds.iter().skip(start).take(count) {
-            if bond != u32::MAX {
-                num_bonds += 1;
-                if controls.visualize_bonds
-                    && (controls.render_hidden_bonds || *visible == Visibility::Visible)
-                {
-                    let other = bond as usize;
-                    let other_pos = positions[other];
-                    let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
-                    gizmos.line(pos, other_pos, Color::WHITE);
+        if !data.fixed[particle.index as usize] {
+            for &bond in bonds.iter().skip(start).take(count) {
+                if bond != u32::MAX {
+                    num_bonds += 1;
+                    if controls.visualize_bonds
+                        && (controls.render_hidden_bonds || *visible == Visibility::Visible)
+                    {
+                        let other = bond as usize;
+                        let other_pos = positions[other];
+                        let other_pos = Vec3::new(other_pos.x, other_pos.y, other_pos.z);
+                        gizmos.line(pos, other_pos, Color::WHITE);
+                    }
                 }
             }
+            if !lock && num_bonds == 0 && controls.remove_singletons {
+                *visible = Visibility::Hidden;
+            }
+            let material_index = ((1.0
+                - num_bonds as f32
+                    / if controls.render_absolute {
+                        16.0
+                    } else {
+                        count as f32
+                    })
+                * 19.99)
+                .clamp(0.0, 19.99)
+                .floor() as usize;
+            *material = palette.materials[particle.object as usize][material_index].clone();
         }
-        if !lock && num_bonds == 0 && controls.remove_singletons {
-            *visible = Visibility::Hidden;
-        }
-        let material_index = ((1.0
-            - num_bonds as f32
-                / if controls.render_absolute {
-                    16.0
-                } else {
-                    count as f32
-                })
-            * 19.99)
-            .clamp(0.0, 19.99)
-            .floor() as usize;
-        *material = if data.fixed[particle.index as usize] {
-            palette.fixed[particle.object as usize].clone()
-        } else {
-            palette.materials[particle.object as usize][material_index].clone()
-        };
     }
 }
 
