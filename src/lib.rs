@@ -90,7 +90,6 @@ fn lv(a: Vec3) -> LVec3<f32> {
 #[derive(Resource)]
 struct Palette {
     materials: Vec<Vec<Handle<StandardMaterial>>>,
-    fixed: Vec<Handle<StandardMaterial>>,
 }
 
 fn setup(
@@ -107,7 +106,6 @@ fn setup(
     let mesh = meshes.add(Sphere::new(0.5));
 
     let mut palette = vec![];
-    let mut fixed = vec![];
     for (i, object) in scene.objects.iter().enumerate() {
         let mut object_palette = vec![];
         let base = Oklcha::from(object.color);
@@ -133,7 +131,6 @@ fn setup(
             perceptual_roughness: 1.0,
             ..default()
         });
-        fixed.push(fixed_material.clone());
 
         for index in object.particle_start..object.particle_start + object.particle_count {
             let particle = &scene.particles[index as usize];
@@ -155,10 +152,7 @@ fn setup(
         }
         palette.push(object_palette);
     }
-    commands.insert_resource(Palette {
-        materials: palette,
-        fixed,
-    });
+    commands.insert_resource(Palette { materials: palette });
 
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
@@ -263,6 +257,7 @@ struct Controls {
     remove_singletons: bool,
     lock: bool,
     render_hidden_bonds: bool,
+    render_visible_bonds: bool,
     render_absolute: bool,
 }
 impl Default for Controls {
@@ -275,6 +270,7 @@ impl Default for Controls {
             remove_singletons: false,
             lock: false,
             render_hidden_bonds: true,
+            render_visible_bonds: true,
             render_absolute: false,
         }
     }
@@ -291,6 +287,7 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
         ui.checkbox(&mut controls.lock, "Lock");
         ui.checkbox(&mut controls.render_hidden_bonds, "Render Hidden Bonds");
+        ui.checkbox(&mut controls.render_visible_bonds, "Render Visible Bonds");
         ui.checkbox(&mut controls.render_absolute, "Use Absolute Bond Colors");
     });
 }
@@ -342,6 +339,7 @@ fn update_render(
                     if !broken
                         && controls.visualize_bonds
                         && (controls.render_hidden_bonds || *visible == Visibility::Visible)
+                        && (controls.render_visible_bonds || *visible == Visibility::Hidden)
                     {
                         let other = bond as usize;
                         let other_pos = positions[other];

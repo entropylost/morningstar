@@ -18,8 +18,7 @@ Scene(
         ),
     ],
     constants: (
-        substeps: 1, // 5, 20 work pretty well.
-        dt: 0.016,
+        substeps: 1,
         breaking_model: TotalStress(max_stress: 0.02, use_collision: true),
         // breaking_model: Distance(
         //     max: 1.0005,
@@ -33,9 +32,6 @@ Scene(
         ),
         */
         camera_position: (0.0, 0.0, 10.0),
-        young_modulus: inf,
-        shear_modulus: inf,
-        collision_stiffness: inf,
         // collision_step: Factor(1.0),
         grid_size: (80, 80, 20),
 

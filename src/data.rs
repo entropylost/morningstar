@@ -10,7 +10,6 @@ pub struct Constants {
     pub gravity: Vec3,
     pub breaking_model: BreakingModel,
     pub grid_size: UVec3,
-    pub grid_scale: f32,
     pub particle_radius: f32,
     pub collision_particle_radius: f32,
     pub bond_radius: f32,
@@ -55,8 +54,8 @@ pub enum ConstraintStepModel {
 impl Default for Constants {
     fn default() -> Self {
         Self {
-            substeps: 1,
-            dt: 1.0 / 600.0,
+            substeps: 10,
+            dt: 0.016,
             gravity: Vec3::ZERO, // Vec3::new(0.0, -0.000002, 0.0),
             breaking_model: BreakingModel::Distance {
                 max: 1.001,
@@ -64,18 +63,22 @@ impl Default for Constants {
                 angle: 0.0,
             },
             grid_size: UVec3::splat(40),
-            grid_scale: 1.0, // The particle diameter.
             particle_radius: 0.5,
             collision_particle_radius: 0.49,
             bond_radius: 0.5,
-            young_modulus: 1.0,
-            shear_modulus: 1.0,
-            collision_stiffness: 1.0,
+            young_modulus: f32::INFINITY,
+            shear_modulus: f32::INFINITY,
+            collision_stiffness: f32::INFINITY,
             cosserat_step: ConstraintStepModel::Factor(1.0 / 16.0),
             collision_step: ConstraintStepModel::Factor(1.0 / 16.0),
             camera_position: Vec3::new(0.0, 0.0, 50.0),
             camera_target: Vec3::ZERO,
         }
+    }
+}
+impl Constants {
+    pub fn grid_scale(&self) -> f32 {
+        2.0 * self.collision_particle_radius
     }
 }
 

@@ -47,7 +47,7 @@ pub struct Grid {
 #[tracked]
 pub fn neighbors(grid: &Grid, constants: &Constants, position: Expr<Vec3>, f: impl Fn(Expr<u32>)) {
     let size = constants.grid_size;
-    let scale = constants.grid_scale;
+    let scale = constants.grid_scale();
     let position = (position / scale).floor().cast_i32();
     for i in -1..=1 {
         for j in -1..=1 {
@@ -398,7 +398,7 @@ pub fn count_kernel(
         let cell = grid_cell(
             particles.linpos.read(*index),
             constants.grid_size,
-            constants.grid_scale,
+            constants.grid_scale(),
         );
         grid.count.atomic_ref(cell).fetch_add(1);
     })
@@ -422,7 +422,7 @@ pub fn add_particle_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&particles.domain, &|index| {
         let position = particles.linpos.read(*index);
-        let cell = grid_cell(position, constants.grid_size, constants.grid_scale);
+        let cell = grid_cell(position, constants.grid_size, constants.grid_scale());
         let offset = grid.offset.read(cell) + grid.count.atomic_ref(cell).fetch_add(1);
         grid.particles.write(offset, *index);
     })
