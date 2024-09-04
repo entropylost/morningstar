@@ -20,6 +20,7 @@ pub struct Constants {
     pub collision_step: ConstraintStepModel,
     pub camera_position: Vec3,
     pub camera_target: Vec3,
+    pub ambient_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
@@ -73,6 +74,7 @@ impl Default for Constants {
             collision_step: ConstraintStepModel::Factor(1.0 / 16.0),
             camera_position: Vec3::new(0.0, 0.0, 50.0),
             camera_target: Vec3::ZERO,
+            ambient_only: false,
         }
     }
 }
@@ -107,6 +109,8 @@ pub struct Particles {
 #[serde(default)]
 pub struct Object {
     pub color: Color,
+    pub lightness_power: f32,
+    pub lightness_multiplier: f32,
     // Path to file containing Particles
     pub particles: String,
     pub velocity: Vec3,
@@ -120,6 +124,8 @@ impl Default for Object {
     fn default() -> Self {
         Self {
             color: Color::srgb(0.5, 0.5, 0.5),
+            lightness_power: 1.6,
+            lightness_multiplier: 0.01,
             particles: "".to_string(),
             velocity: Vec3::ZERO,
             position: Vec3::ZERO,
@@ -174,6 +180,8 @@ impl Scene {
             }));
             objects.push(LoadedObject {
                 color: object.color,
+                lightness_power: object.lightness_power,
+                lightness_multiplier: object.lightness_multiplier,
                 particle_start: particle_offset,
                 particle_count: count as u32,
             });
@@ -200,6 +208,8 @@ pub struct LoadedScene {
 #[derive(Debug, Clone)]
 pub struct LoadedObject {
     pub color: Color,
+    pub lightness_power: f32,
+    pub lightness_multiplier: f32,
     pub particle_start: u32,
     pub particle_count: u32,
 }

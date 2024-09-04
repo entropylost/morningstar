@@ -60,7 +60,7 @@ pub fn main() {
         // Potentially replace with the fancy camera controller.
         .add_plugins(NoCameraPlayerPlugin)
         .init_resource::<Controls>()
-        .insert_resource(ClearColor(Color::srgb(0.7, 0.7, 0.72)))
+        .insert_resource(ClearColor(Color::srgb(0.6, 0.6, 0.62)))
         .insert_resource(MovementSettings {
             sensitivity: 0.00015,
             speed: 30.0,
@@ -96,6 +96,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut ambient: ResMut<AmbientLight>,
 ) {
     let args = std::env::args().collect::<Vec<_>>();
     let scene_name = args.get(1).cloned().unwrap_or("scene.ron".to_string());
@@ -112,7 +113,10 @@ fn setup(
         let transparent = base.alpha < 1.0;
         for i in 0..20 {
             let color = base
-                .with_lightness(base.lightness + 0.01 * (i as f32).powf(1.6))
+                .with_lightness(
+                    base.lightness
+                        + object.lightness_multiplier * (i as f32).powf(object.lightness_power),
+                )
                 .with_alpha(base.alpha.lerp(1.0, i as f32 / 19.0));
             let material = materials.add(StandardMaterial {
                 base_color: color.into(),
@@ -154,15 +158,19 @@ fn setup(
     }
     commands.insert_resource(Palette { materials: palette });
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            illuminance: 1000.0,
+    if constants.ambient_only {
+        ambient.brightness = 1000.0;
+    } else {
+        commands.spawn(DirectionalLightBundle {
+            directional_light: DirectionalLight {
+                color: Color::WHITE,
+                illuminance: 1000.0,
+                ..default()
+            },
+            transform: Transform::from_rotation(Quat::from_rotation_x(-1.0)),
             ..default()
-        },
-        transform: Transform::from_rotation(Quat::from_rotation_x(-1.0)),
-        ..default()
-    });
+        });
+    }
 
     commands.spawn((
         Camera3dBundle {

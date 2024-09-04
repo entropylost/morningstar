@@ -19,7 +19,7 @@ Scene(
     ],
     constants: (
         substeps: 20,
-        camera_position: (0.0, 0.0, 10.0),
+        camera_position: (0.0, 0.0, 50.0),
         breaking_model: Distance ( max: 1.001 ),
         collision_particle_radius: 0.49,
         grid_size: (80, 80, 20),
