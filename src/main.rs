@@ -1,3 +1,3 @@
 fn main() {
-    fracture::main();
+    morningstar::main();
 }

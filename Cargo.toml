@@ -1,8 +1,8 @@
 [package]
-name = "fracture"
+name = "morningstar"
 version = "0.1.0"
 edition = "2021"
-default-run = "fracture"
+default-run = "morningstar"
 
 [dependencies]
 nalgebra = { version = "0.33.0", features = [
@@ -18,10 +18,10 @@ sefirot = { path = "../sefirot/sefirot", features = [
 ] }
 sefirot_grid = { path = "../sefirot/sefirot_grid" }
 bevy_sefirot = { path = "../sefirot/bevy_sefirot" }
-bevy_egui = "0.28.0"
+bevy_egui = "0.29.0"
 egui = "0.28.1"
 bevy_flycam = "0.14.1"
-serde = { version = "1.0.204", features = ["derive"] }
+serde = { version = "1.0.209", features = ["derive"] }
 ron = "0.8.1"
 smallvec = "1.13.2"
 parking_lot = "0.12.3"

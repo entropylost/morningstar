@@ -2,7 +2,7 @@ use std::fs::File;
 
 use bevy::math::{IVec3, Vec3};
 use bevy::utils::{default, HashMap};
-use fracture::data::*;
+use morningstar::data::*;
 use nalgebra::Vector3;
 use prism::shape::*;
 use prism::*;
