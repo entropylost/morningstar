@@ -1,0 +1,28 @@
+Scene(
+    objects: [
+        (
+            color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:0.05)),
+            particles: "table.pts",
+            // unfix: true,
+        ),
+        (
+            color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
+            particles: "largeball.pts",
+            position: (0.0, 25.0, 0.0),
+            velocity: (0.0, -1.0, 0.0),
+            mass: inf,
+        ),
+    ],
+    constants: (
+        substeps: 10, // 5, 20 work pretty well.
+        dt: 0.016,
+        camera_position: (0.0, 60.0, 0.0),
+        young_modulus: inf,
+        shear_modulus: inf,
+        collision_stiffness: inf,
+        collision_particle_radius: 0.49,
+        // collision_step: Factor(1.0),
+        breaking_model: TotalStress(max_stress: 0.005),
+        grid_size: (80, 80, 20),
+    ),
+)

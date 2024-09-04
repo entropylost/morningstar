@@ -22,6 +22,8 @@ pub struct Particles {
 
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
+    // Used by BreakingModel::TotalStress only.
+    pub broken: Option<Buffer<bool>>,
     pub mass: Buffer<f32>,
 }
 
@@ -103,8 +105,8 @@ pub fn solve_kernel(
         let linpos = particles.linpos.read(*index);
         let angpos = particles.angpos.read(*index);
 
-        let linvel_delta = Vec3::splat_expr(0.0).var();
-        let angvel_delta = Vec3::splat_expr(0.0).var();
+        let linvel_delta = Vec3::splat(0.0).var();
+        let angvel_delta = Vec3::splat(0.0).var();
 
         let pi = linpos;
         let qi = angpos;
@@ -120,10 +122,19 @@ pub fn solve_kernel(
 
         let active_bonds = 0_u32.var();
 
+        let stress = 0.0_f32.var();
+
         for bond in bond_start..bond_start + bond_count {
             let other = bonds.other_particle.read(bond);
             if other == u32::MAX {
                 continue;
+            }
+
+            if let BreakingModel::TotalStress { .. } = constants.breaking_model {
+                if particles.bond_count.read(other) == 0 {
+                    bonds.other_particle.write(bond, u32::MAX);
+                    continue;
+                }
             }
 
             let other_linpos = particles.linpos.read(other);
@@ -185,7 +196,7 @@ pub fn solve_kernel(
                 let twist_torque = outputs.bt_ang_delta.dot(normal);
                 let bend_torque = (outputs.bt_ang_delta - twist_torque * normal).norm();
 
-                let normal_stress = normal_force
+                let normal_stress = -normal_force
                     / (5.0_f32 / 6.0 * PI * constants.bond_radius.powi(2))
                     + bend_torque * constants.bond_radius
                         / (PI * constants.bond_radius.powi(4) / 4.0);
@@ -193,8 +204,7 @@ pub fn solve_kernel(
                     + twist_torque.abs() * constants.bond_radius
                         / (PI * constants.bond_radius.powi(4) / 2.0);
 
-                if normal_stress > max_normal_stress * dt2 || shear_stress > max_shear_stress * dt2
-                {
+                if normal_stress > max_normal_stress || shear_stress > max_shear_stress {
                     bonds.other_particle.write(bond, u32::MAX);
                     // NOTE: We have an assymmetry in the bond breaking logic, but that should be corrected.
                     continue;
@@ -203,7 +213,15 @@ pub fn solve_kernel(
 
             *linvel_delta += outputs.se_lin_delta;
             *angvel_delta += outputs.se_ang_delta + outputs.bt_ang_delta;
+
+            if let BreakingModel::TotalStress { .. } = constants.breaking_model {
+                *stress += outputs.se_lin_delta.dot(pdiff);
+            }
         }
+
+        let collision_linvel_delta = Vec3::splat(0.0).var();
+
+        let active_collisions = 0_u32.var();
 
         // TODO: I can remove self-collisions by subtracting this collision when iterating over bonds.
         neighbors(&grid, &constants, linpos, |other| {
@@ -216,28 +234,56 @@ pub fn solve_kernel(
                 if pnorm <= 2.0 * constants.collision_particle_radius {
                     let n = pdiff / pnorm;
 
-                    *linvel_delta -=
-                        mi.recip() * n * (2.0 * constants.collision_particle_radius - pnorm)
-                            / (mi.recip() + mj.recip() + collision_stiffness.recip());
+                    *active_collisions += 1;
+                    let delta = mi.recip() * (2.0 * constants.collision_particle_radius - pnorm)
+                        / (mi.recip() + mj.recip() + collision_stiffness.recip());
+                    *collision_linvel_delta -= delta * n;
+
+                    if let BreakingModel::TotalStress {
+                        use_collision: true,
+                        ..
+                    } = constants.breaking_model
+                    {
+                        *stress += delta;
+                    }
                 }
             }
         });
 
-        let constraint_step = match constants.constraint_step {
+        let cosserat_step = match constants.cosserat_step {
             ConstraintStepModel::Factor(f) => f.expr(),
             ConstraintStepModel::StartingBondCount => luisa::max(bond_count, 1).cast_f32().recip(),
             ConstraintStepModel::CurrentBondCount => luisa::max(active_bonds, 1).cast_f32().recip(),
+            ConstraintStepModel::CollisionCount => {
+                luisa::max(active_collisions, 1).cast_f32().recip()
+            }
+        };
+        let collision_step = match constants.collision_step {
+            ConstraintStepModel::Factor(f) => f.expr(),
+            ConstraintStepModel::StartingBondCount => luisa::max(bond_count, 1).cast_f32().recip(),
+            ConstraintStepModel::CurrentBondCount => luisa::max(active_bonds, 1).cast_f32().recip(),
+            ConstraintStepModel::CollisionCount => {
+                luisa::max(active_collisions, 1).cast_f32().recip()
+            }
         };
 
         particles.linvel.write(
             *index,
-            particles.linvel.read(*index) + linvel_delta * constraint_step,
+            particles.linvel.read(*index)
+                + linvel_delta * cosserat_step
+                + collision_linvel_delta * collision_step,
         );
 
         particles.angvel.write(
             *index,
-            particles.angvel.read(*index) + angvel_delta * constraint_step,
+            particles.angvel.read(*index) + angvel_delta * cosserat_step,
         );
+
+        if let BreakingModel::TotalStress { max_stress, .. } = constants.breaking_model {
+            if stress > max_stress {
+                particles.broken.as_ref().unwrap().write(*index, true);
+            }
+        }
     })
 }
 
@@ -270,6 +316,12 @@ pub fn solve_update_kernel(particles: Res<Particles>) -> Kernel<fn()> {
         let angvel = particles.angvel.read(*index);
         let angpos = step_pos_ang(particles.last_angpos.read(*index), angvel);
         particles.angpos.write(*index, angpos);
+
+        if let Some(broken) = &particles.broken {
+            if broken.read(*index) {
+                particles.bond_count.write(*index, 0);
+            }
+        }
     })
 }
 

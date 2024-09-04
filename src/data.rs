@@ -17,7 +17,8 @@ pub struct Constants {
     pub young_modulus: f32,
     pub shear_modulus: f32,
     pub collision_stiffness: f32,
-    pub constraint_step: ConstraintStepModel,
+    pub cosserat_step: ConstraintStepModel,
+    pub collision_step: ConstraintStepModel,
     pub camera_position: Vec3,
     pub camera_target: Vec3,
 }
@@ -36,36 +37,19 @@ pub enum BreakingModel {
         normal: f32,
         shear: f32,
     },
+    TotalStress {
+        max_stress: f32,
+        #[serde(default)]
+        use_collision: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
 pub enum ConstraintStepModel {
     StartingBondCount,
     CurrentBondCount,
+    CollisionCount,
     Factor(f32),
-}
-
-#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize, Default)]
-pub enum SpringModel {
-    #[default]
-    Linear,
-    Quadratic,
-    InvQuadratic,
-    Impulse(#[serde(default)] ImpulseConstants),
-}
-#[derive(Debug, Clone, Copy, Resource, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ImpulseConstants {
-    pub bias: f32,
-    pub slop: f32,
-}
-impl Default for ImpulseConstants {
-    fn default() -> Self {
-        Self {
-            bias: 0.01,
-            slop: 0.01,
-        }
-    }
 }
 
 impl Default for Constants {
@@ -87,7 +71,8 @@ impl Default for Constants {
             young_modulus: 1.0,
             shear_modulus: 1.0,
             collision_stiffness: 1.0,
-            constraint_step: ConstraintStepModel::Factor(1.0 / 16.0),
+            cosserat_step: ConstraintStepModel::Factor(1.0 / 16.0),
+            collision_step: ConstraintStepModel::Factor(1.0 / 16.0),
             camera_position: Vec3::new(0.0, 0.0, 50.0),
             camera_target: Vec3::ZERO,
         }

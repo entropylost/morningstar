@@ -13,21 +13,29 @@ Scene(
             color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),
             particles: "largeball.pts",
             position: (0.0, 0.0, 20.0),
-            velocity: (0.0, 0.0, -0.4),
+            velocity: (0.0, 0.0, -1.0),
             mass: inf,
         ),
     ],
     constants: (
-        substeps: 10, // 5, 20 work pretty well.
+        substeps: 5, // 5, 20 work pretty well.
         dt: 0.016,
-        breaking_model: Stress(
-            normal: 5e4,
-            shear: 1e5,
+        breaking_model: TotalStress(0.03),
+        // breaking_model: Distance(
+        //     max: 1.005,
+        //     angle: 0.01,
+        // ),
+        /*
+        Stress(
+            normal: 0.01,
+            shear: 5.0,
         ),
+        */
         camera_position: (0.0, 0.0, 10.0),
         young_modulus: inf,
         shear_modulus: inf,
         collision_stiffness: inf,
+        // collision_step: Factor(1.0),
         grid_size: (80, 80, 20),
 
     ),

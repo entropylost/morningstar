@@ -9,13 +9,13 @@ use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let volume = Cuboid::new(Vector3::new(100.0, 100.0, 2.5));
+    let volume = Cuboid::new(Vector3::new(30.0, 15.0, 30.0));
 
     let points = volume.packed_points(PackedSettings {
         particle_settings: 0.5.into(),
         max_iters: 500,
         cutoff: 0.01,
-        density: 1.3,
+        density: 1.2,
     });
     println!("Iters: {}", points.iters);
     println!("Penetration: {}", points.max_penetration);
@@ -58,12 +58,12 @@ fn main() {
         }
     }
     for p in &mut particles {
-        if p.position.y.abs() > 98.0 || p.position.x.abs() > 98.0 {
+        if p.position.y < -13.0 {
             p.fixed = true;
         }
     }
 
-    let file = File::create("panel-big.pts").unwrap();
+    let file = File::create("table.pts").unwrap();
 
     ron::ser::to_writer(file, &Particles { particles, bonds }).unwrap();
 }
