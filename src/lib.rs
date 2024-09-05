@@ -190,7 +190,7 @@ fn setup(
     let l = particles.len();
     println!("Num particles: {}", l);
 
-    let render = ParticleBondData {
+    let render_bond_data = ParticleBondData {
         bond_start: particles.iter().map(|p| p.bond_start).collect(),
         bond_count: particles.iter().map(|p| p.bond_count).collect(),
         fixed: particles.iter().map(|p| p.mass == f32::INFINITY).collect(),
@@ -243,8 +243,9 @@ fn setup(
         particles: DEVICE.create_buffer(l),
         next_block: DEVICE.create_buffer(1),
     };
-    commands.insert_resource(render);
+
     commands.insert_resource(particles);
+    commands.insert_resource(render_bond_data);
     commands.insert_resource(bonds);
     commands.insert_resource(grid);
     commands.insert_resource(constants);

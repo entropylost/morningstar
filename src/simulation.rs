@@ -1,11 +1,8 @@
 use std::f32::consts::PI;
 
-use utils::{step_pos_ang, Mat4x3};
+use utils::{step_pos_ang, Mat4x3, Vec3, Vec4};
 
 use super::*;
-
-type Vec3 = LVec3<f32>;
-type Vec4 = LVec4<f32>;
 
 #[derive(Debug, Resource)]
 pub struct Particles {
@@ -124,7 +121,8 @@ pub fn solve_kernel(
 
         let stress = 0.0_f32.var();
 
-        for bond in bond_start..bond_start + bond_count {
+        for i in 0.expr()..bond_count {
+            let bond = bond_start + i;
             let other = bonds.other_particle.read(bond);
             if other == u32::MAX {
                 continue;
@@ -379,10 +377,10 @@ pub fn reset_grid_kernel(grid: Res<Grid>) -> Kernel<fn()> {
 
 #[tracked]
 pub fn grid_cell_index(position: Expr<LVec3<i32>>, size: UVec3) -> Expr<u32> {
-    let size_i = LVec3::new(size.x as i32, size.y as i32, size.z as i32);
+    let size_i = LVec3::from(size.as_ivec3());
 
     let position = position.rem_euclid(size_i).cast_u32();
-    position.y + size.x * (position.x + size.y * position.z)
+    position.x + size.x * (position.y + size.y * position.z)
 }
 
 #[tracked]
