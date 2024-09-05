@@ -267,6 +267,7 @@ struct Controls {
     render_hidden_bonds: bool,
     render_visible_bonds: bool,
     render_absolute: bool,
+    hide_fixed: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -280,6 +281,7 @@ impl Default for Controls {
             render_hidden_bonds: true,
             render_visible_bonds: true,
             render_absolute: false,
+            hide_fixed: false,
         }
     }
 }
@@ -297,6 +299,7 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         ui.checkbox(&mut controls.render_hidden_bonds, "Render Hidden Bonds");
         ui.checkbox(&mut controls.render_visible_bonds, "Render Visible Bonds");
         ui.checkbox(&mut controls.render_absolute, "Use Absolute Bond Colors");
+        ui.checkbox(&mut controls.hide_fixed, "Hide Fixed Particles");
     });
 }
 
@@ -335,6 +338,10 @@ fn update_render(
         let count = data.bond_count[particle.index as usize] as usize;
 
         let mut num_bonds = 0;
+
+        if controls.hide_fixed && data.fixed[particle.index as usize] {
+            *visible = Visibility::Hidden;
+        }
 
         if !data.fixed[particle.index as usize] {
             let broken = broken

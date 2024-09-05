@@ -19,7 +19,7 @@ Scene(
     ],
     constants: (
         substeps: 1,
-        breaking_model: TotalStress(max_stress: 0.02, use_collision: true),
+        breaking_model: TotalStress(max: 0.02),
         // breaking_model: Distance(
         //     max: 1.0005,
         //     min: 0.99,

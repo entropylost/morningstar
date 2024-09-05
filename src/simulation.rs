@@ -240,7 +240,7 @@ pub fn solve_kernel(
                     *collision_linvel_delta -= delta * n;
 
                     if let BreakingModel::TotalStress {
-                        use_collision: true,
+                        ignore_collision: false,
                         ..
                     } = constants.breaking_model
                     {
@@ -279,7 +279,10 @@ pub fn solve_kernel(
             particles.angvel.read(*index) + angvel_delta * cosserat_step,
         );
 
-        if let BreakingModel::TotalStress { max_stress, .. } = constants.breaking_model {
+        if let BreakingModel::TotalStress {
+            max: max_stress, ..
+        } = constants.breaking_model
+        {
             if stress > max_stress {
                 particles.broken.as_ref().unwrap().write(*index, true);
             }

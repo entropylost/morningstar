@@ -18,6 +18,6 @@ Scene(
         camera_position: (0.0, 60.0, 0.0),
         collision_particle_radius: 0.49,
         // collision_step: Factor(1.0),
-        breaking_model: TotalStress(max_stress: 0.005),
+        breaking_model: TotalStress(max: 0.005, ignore_collision: true),
     ),
 )

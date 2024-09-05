@@ -38,9 +38,9 @@ pub enum BreakingModel {
         shear: f32,
     },
     TotalStress {
-        max_stress: f32,
+        max: f32,
         #[serde(default)]
-        use_collision: bool,
+        ignore_collision: bool,
     },
 }
 
