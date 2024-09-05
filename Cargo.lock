@@ -3076,6 +3076,7 @@ dependencies = [
  "bevy_sefirot",
  "color-eyre",
  "egui",
+ "image",
  "nalgebra",
  "parking_lot",
  "prism",

@@ -3,6 +3,10 @@ use std::ops::Range;
 use std::path::Path;
 
 use bevy::prelude::*;
+use bevy::render::camera::RenderTarget;
+use bevy::render::settings::{PowerPreference, WgpuSettings};
+use bevy::render::RenderPlugin;
+use bevy::window::{WindowRef, WindowResolution};
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
@@ -17,6 +21,7 @@ mod simulation;
 use simulation::*;
 pub mod data;
 use data::*;
+mod render;
 pub mod cosserat;
 pub mod utils;
 
@@ -67,9 +72,18 @@ pub fn main() {
                 init_predict_kernel,
                 init_solve_kernel,
                 init_solve_update_kernel,
+                (
+                    render::init_add_particle_kernel,
+                    render::init_compute_offset_kernel,
+                    render::init_count_kernel,
+                    render::init_trace_kernel,
+                ),
             ),
         )
-        .add_systems(Update, (step, update_ui, update_render).chain())
+        .add_systems(
+            Update,
+            (step, update_ui, update_render, render::render).chain(),
+        )
         .run();
 }
 
@@ -208,7 +222,7 @@ fn setup(
         }),
     };
 
-    let particles = simulation::Particles {
+    let particle_data = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
         linpos: DEVICE.create_buffer_from_fn(l, |i| particles[i].position.into()),
         angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
@@ -231,8 +245,79 @@ fn setup(
         next_block: DEVICE.create_buffer(1),
     };
 
-    commands.insert_resource(particles);
+    let render_constants = render::RenderConstants {
+        grid_size: UVec3::new(40, 40, 40),
+        grid_scale: 2.0,
+        max_radius: 1.0,
+        additional_slices: [
+            render::Slice {
+                position: LVec3::new(40.0, 0.0, 0.0),
+                normal: LVec3::new(1.0, 0.0, 0.0),
+            },
+            render::Slice {
+                position: LVec3::new(-40.0, 0.0, 0.0),
+                normal: LVec3::new(-1.0, 0.0, 0.0),
+            },
+            render::Slice {
+                position: LVec3::new(0.0, 40.0, 0.0),
+                normal: LVec3::new(0.0, 1.0, 0.0),
+            },
+            render::Slice {
+                position: LVec3::new(0.0, -40.0, 0.0),
+                normal: LVec3::new(0.0, -1.0, 0.0),
+            },
+            render::Slice {
+                position: LVec3::new(0.0, 0.0, 2.5),
+                normal: LVec3::new(0.0, 0.0, 1.0),
+            },
+            render::Slice {
+                position: LVec3::new(0.0, 0.0, -2.5),
+                normal: LVec3::new(0.0, 0.0, -1.0),
+            },
+        ],
+    };
+    let screen_size = UVec2::new(960, 540);
+    let grid_size = render_constants.grid_size.element_product() as usize;
+    let render_data = render::RenderData {
+        starting_positions: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        screen: DEVICE.create_buffer((screen_size.x * screen_size.y) as usize),
+        screen_domain: StaticDomain::<2>::new(screen_size.x, screen_size.y),
+        grid: render::RenderGrid {
+            domain: StaticDomain::<1>::new(grid_size as u32),
+            count: DEVICE.create_buffer(grid_size),
+            occupance: DEVICE.create_buffer(grid_size),
+            offset: DEVICE.create_buffer(grid_size),
+            particles: DEVICE.create_buffer(l * 27),
+            next_block: DEVICE.create_buffer(1),
+        },
+        bounds: (Vec3::new(-60.0, -60.0, -60.0), Vec3::new(60.0, 60.0, 60.0)),
+    };
+    commands.insert_resource(render_constants);
+    commands.insert_resource(render_data);
+    let window = commands
+        .spawn((Window {
+            resolution: WindowResolution::new(960.0, 540.0),
+            ..default()
+        },))
+        .id();
+    commands.spawn(Camera2dBundle {
+        transform: Transform::from_translation(Vec3::new(5000.0, 5000.0, 5001.0)),
+        camera: Camera {
+            target: RenderTarget::Window(WindowRef::Entity(window)),
+            ..default()
+        },
+        ..default()
+    });
+    commands.spawn((
+        SpriteBundle {
+            transform: Transform::from_translation(Vec3::new(5000.0, 5000.0, 5000.0)),
+            ..default()
+        },
+        render::RenderSprite,
+    ));
+
     commands.insert_resource(render_bond_data);
+    commands.insert_resource(particle_data);
     commands.insert_resource(bonds);
     commands.insert_resource(grid);
     commands.insert_resource(constants);
