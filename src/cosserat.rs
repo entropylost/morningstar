@@ -153,6 +153,9 @@ pub struct CosseratPbdOutputs {
     pub se_ang_delta: Vec3,
     pub bt_dual_step: Vec3,
     pub bt_ang_delta: Vec3,
+    // For stress computation.
+    // pub se_lin_force: Vec3,
+    // pub bt_ang_force: Vec3,
 }
 
 #[tracked]

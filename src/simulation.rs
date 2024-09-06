@@ -170,6 +170,7 @@ pub fn solve_kernel(
 
             let qrest = bonds.rest_rotation.read(bond);
 
+            // TODO: Add forces so can do breaking model better.
             let outputs = cosserat::compute_pbd(
                 bend_twist_coeff,
                 stretch_shear_coeff,
@@ -289,21 +290,28 @@ pub fn solve_kernel(
 }
 
 #[kernel(init(pub))]
-pub fn predict_kernel(particles: Res<Particles>) -> Kernel<fn()> {
+pub fn predict_kernel(particles: Res<Particles>, constants: Res<Constants>) -> Kernel<fn()> {
     Kernel::build(&particles.domain, &|index| {
-        let linvel = particles.linvel.read(*index);
+        let linvel = if constants.gravity == bevy::math::Vec3::ZERO
+            || particles.mass.read(*index) == f32::INFINITY
+        {
+            particles.linvel.read(*index)
+        } else {
+            let lv = particles.linvel.read(*index)
+                + Vec3::from(constants.gravity * constants.dt * constants.dt);
+            particles.linvel.write(*index, lv);
+            lv
+        };
         let linpos = particles.linpos.read(*index);
         let next_linpos = linpos + linvel;
         particles.last_linpos.write(*index, linpos);
         particles.linpos.write(*index, next_linpos);
-        particles.last_linvel.write(*index, linvel);
 
         let angvel = particles.angvel.read(*index);
         let angpos = particles.angpos.read(*index);
         let next_angpos = step_pos_ang(angpos, angvel);
         particles.last_angpos.write(*index, angpos);
         particles.angpos.write(*index, next_angpos);
-        particles.last_angvel.write(*index, angvel);
     })
 }
 
