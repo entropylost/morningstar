@@ -14,11 +14,18 @@ Scene(
         ),
     ],
     constants: (
-        substeps: 1,
-        breaking_model: Distance(
-            max: 1.03,
-            min: 0.9,
-            angle: 0.03,
+        dt: 0.16,
+        substeps: 10,
+        // breaking_model: Distance(
+        //     max: 1.03,
+        //     min: 0.9,
+        //     angle: 0.03,
+        // ),
+        breaking_model: Stress(
+            normal: 2e-4,
+            shear: 4e-4,
+            young_modulus: 1e2,
+            shear_modulus: 4e1,
         ),
         camera_position: (0.0, 0.0, 50.0),
         // collision_step: Factor(1.0),

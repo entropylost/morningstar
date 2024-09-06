@@ -1,30 +1,68 @@
+use std::f32::consts::PI;
+
 use sefirot::prelude::*;
 
 use crate::utils::*;
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Value, PartialEq)]
+// Computes the bend-twist and stretch-shear coefficients.
+pub fn compute_coefficients(
+    dt: f32,
+    bond_radius: f32,
+    young_modulus: f32,
+    shear_modulus: f32,
+) -> (Vec3, Vec3) {
+    let dt2 = dt * dt;
+    let i = PI * bond_radius.powi(4) / 4.0;
+    let j = PI * bond_radius.powi(4) / 2.0;
+    let s = PI * bond_radius.powi(2);
+    let a = 5.0_f32 / 6.0 * s;
+    (
+        Vec3::new(
+            young_modulus * i * dt2,
+            young_modulus * i * dt2,
+            shear_modulus * j * dt2,
+        ),
+        Vec3::new(
+            shear_modulus * a * dt2,
+            shear_modulus * a * dt2,
+            young_modulus * s * dt2,
+        ),
+    )
+}
+
 pub struct CosseratPdOutputs {
-    pub se_lin_force: Vec3,
-    pub se_ang_force: Vec3,
-    pub se_lin_grad2: Vec3,
-    pub se_ang_grad2: Vec3,
-    pub bt_ang_force: Vec3,
-    pub bt_ang_grad2: Vec3,
+    pub se_lin_force: Expr<Vec3>,
+    pub se_ang_force: Expr<Vec3>,
+    pub se_lin_grad2: Expr<Vec3>,
+    pub se_ang_grad2: Expr<Vec3>,
+    pub bt_ang_force: Expr<Vec3>,
+    pub bt_ang_grad2: Expr<Vec3>,
+}
+
+pub struct CosseratPdInputs {
+    pub length: Expr<f32>,
+    pub qrest: Expr<Vec4>,
+    pub g: Expr<Mat4x3>,
+    pub pdiff: Expr<Vec3>,
+    pub q: [Expr<Vec4>; 2],
+    pub qdiff: Expr<Vec4>,
+    pub bend_twist_coeff: Vec3,
+    pub stretch_shear_coeff: Vec3,
 }
 
 #[tracked]
-#[allow(clippy::too_many_arguments)]
-pub fn compute_pd(
-    bend_twist_coeff: Vec3,
-    stretch_shear_coeff: Vec3,
-    length: Expr<f32>,
-    qrest: Expr<Vec4>,
-    g: Expr<Mat4x3>,
-    pdiff: Expr<Vec3>,
-    [qi, qj]: [Expr<Vec4>; 2],
-    qdiff: Expr<Vec4>,
-) -> Expr<CosseratPdOutputs> {
+pub fn compute_pd(inputs: CosseratPdInputs) -> CosseratPdOutputs {
+    let CosseratPdInputs {
+        length,
+        qrest,
+        g,
+        pdiff,
+        q: [qi, qj],
+        qdiff,
+        bend_twist_coeff,
+        stretch_shear_coeff,
+    } = inputs;
+
     let qm = (qi + qj) / 2.0;
     let qm_norm = qm.norm();
     let qij = qm / qm_norm;
@@ -135,43 +173,62 @@ pub fn compute_pd(
         gradient.z.dot(stretch_shear_coeff * gradient.z),
     ) / (length * qm_norm * qm_norm);
 
-    CosseratPdOutputs::from_comps_expr(CosseratPdOutputsComps {
+    CosseratPdOutputs {
         se_lin_force,
         se_ang_force,
         se_lin_grad2,
         se_ang_grad2,
         bt_ang_force,
         bt_ang_grad2,
-    })
+    }
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Value, PartialEq)]
 pub struct CosseratPbdOutputs {
-    pub se_dual_step: Vec3,
-    pub se_lin_delta: Vec3,
-    pub se_ang_delta: Vec3,
-    pub bt_dual_step: Vec3,
-    pub bt_ang_delta: Vec3,
+    pub se_dual_step: Expr<Vec3>,
+    pub se_lin_delta: Expr<Vec3>,
+    pub se_ang_delta: Expr<Vec3>,
+    pub bt_dual_step: Expr<Vec3>,
+    pub bt_ang_delta: Expr<Vec3>,
     // For stress computation.
-    // pub se_lin_force: Vec3,
-    // pub bt_ang_force: Vec3,
+    pub se_lin_force: Expr<Vec3>,
+    pub se_ang_force: Expr<Vec3>,
+    pub bt_ang_force: Expr<Vec3>,
+}
+
+pub struct CosseratPbdInputs {
+    pub length: Expr<f32>,
+    pub qrest: Expr<Vec4>,
+    pub g: Expr<Mat4x3>,
+    pub m: [Expr<f32>; 2],
+    pub mo: [Expr<f32>; 2],
+    pub pdiff: Expr<Vec3>,
+    pub q: [Expr<Vec4>; 2],
+    pub qdiff: Expr<Vec4>,
+    // Usually infinite.
+    pub bend_twist_coeff: Vec3,
+    pub stretch_shear_coeff: Vec3,
+    // Used in the force computation only.
+    pub force_bend_twist_coeff: Vec3,
+    pub force_stretch_shear_coeff: Vec3,
 }
 
 #[tracked]
-#[allow(clippy::too_many_arguments)]
-pub fn compute_pbd(
-    bend_twist_coeff: Vec3,
-    stretch_shear_coeff: Vec3,
-    length: Expr<f32>,
-    qrest: Expr<Vec4>,
-    g: Expr<Mat4x3>,
-    [mi, mj]: [Expr<f32>; 2],
-    [moi, moj]: [Expr<f32>; 2],
-    pdiff: Expr<Vec3>,
-    [qi, qj]: [Expr<Vec4>; 2],
-    qdiff: Expr<Vec4>,
-) -> Expr<CosseratPbdOutputs> {
+pub fn compute_pbd(inputs: CosseratPbdInputs) -> CosseratPbdOutputs {
+    let CosseratPbdInputs {
+        length,
+        qrest,
+        g,
+        m: [mi, mj],
+        mo: [moi, moj],
+        pdiff,
+        q: [qi, qj],
+        qdiff,
+        bend_twist_coeff,
+        stretch_shear_coeff,
+        force_bend_twist_coeff,
+        force_stretch_shear_coeff,
+    } = inputs;
+
     let qm = (qi + qj) / 2.0;
     let qm_norm = qm.norm();
     let qij = qm / qm_norm;
@@ -214,6 +271,8 @@ pub fn compute_pbd(
     let gradient = mul_mat4x3(gradient, g);
     let gradient_t = gradient.transpose();
 
+    let bt_ang_force = -(gradient_t * (force_bend_twist_coeff * darboux));
+
     let h = -darboux; //  - (1.0  / bend_twist_coeff) * lambda;
     let denom = Vec3::expr(
         gradient_t.x.norm_squared(),
@@ -238,6 +297,8 @@ pub fn compute_pbd(
 
     // Missed a - sign here which is fixed later.
     let lin_grad_t = qtotal_mat;
+
+    let se_lin_force = lin_grad_t * (force_stretch_shear_coeff * strain);
 
     let qpart = qmul(pdiff.extend(0.0), qij);
 
@@ -298,11 +359,17 @@ pub fn compute_pbd(
     let se_lin_delta = -mi.recip() * lin_grad_t * se_dual_step / length;
     let se_ang_delta = moi.recip() * ang_grad_t * se_dual_step / (length * qm_norm);
 
-    CosseratPbdOutputs::from_comps_expr(CosseratPbdOutputsComps {
+    let se_ang_force = -(ang_grad_t * (force_stretch_shear_coeff * strain)) / qm_norm;
+
+    CosseratPbdOutputs {
         se_dual_step,
         se_lin_delta,
         se_ang_delta,
         bt_dual_step,
         bt_ang_delta,
-    })
+
+        se_lin_force,
+        se_ang_force,
+        bt_ang_force,
+    }
 }

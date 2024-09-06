@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use cosserat::{compute_coefficients, CosseratPbdInputs};
 use utils::{step_pos_ang, Mat4x3, Vec3, Vec4};
 
 use super::*;
@@ -14,8 +15,6 @@ pub struct Particles {
 
     pub last_linpos: Buffer<Vec3>,
     pub last_angpos: Buffer<Vec4>,
-    pub last_linvel: Buffer<Vec3>,
-    pub last_angvel: Buffer<Vec3>,
 
     pub bond_start: Buffer<u32>,
     pub bond_count: Buffer<u32>,
@@ -69,24 +68,36 @@ pub fn solve_kernel(
     constants: Res<Constants>,
 ) -> Kernel<fn()> {
     let dt2 = constants.dt * constants.dt;
-    let bend_twist_coeff = {
-        let i = PI * constants.bond_radius.powi(4) / 4.0;
-        let j = PI * constants.bond_radius.powi(4) / 2.0;
-        Vec3::new(
-            constants.young_modulus * i * dt2,
-            constants.young_modulus * i * dt2,
-            constants.shear_modulus * j * dt2,
+    let (bend_twist_coeff, stretch_shear_coeff) = compute_coefficients(
+        constants.dt,
+        constants.bond_radius,
+        constants.young_modulus,
+        constants.shear_modulus,
+    );
+    let (force_bend_twist_coeff, force_stretch_shear_coeff) = if let BreakingModel::Stress {
+        young_modulus,
+        shear_modulus,
+        ..
+    } = constants.breaking_model
+    {
+        let young_modulus = if young_modulus == 0.0 {
+            constants.young_modulus
+        } else {
+            young_modulus
+        };
+        let shear_modulus = if shear_modulus == 0.0 {
+            constants.shear_modulus
+        } else {
+            shear_modulus
+        };
+        compute_coefficients(
+            constants.dt,
+            constants.bond_radius,
+            young_modulus,
+            shear_modulus,
         )
-    };
-
-    let stretch_shear_coeff = {
-        let s = PI * constants.bond_radius.powi(2);
-        let a = 5.0_f32 / 6.0 * s;
-        Vec3::new(
-            constants.shear_modulus * a * dt2,
-            constants.shear_modulus * a * dt2,
-            constants.young_modulus * s * dt2,
-        )
+    } else {
+        (Vec3::splat(0.0), Vec3::splat(0.0))
     };
 
     Kernel::build(&particles.domain, &|index| {
@@ -171,31 +182,35 @@ pub fn solve_kernel(
             let qrest = bonds.rest_rotation.read(bond);
 
             // TODO: Add forces so can do breaking model better.
-            let outputs = cosserat::compute_pbd(
-                bend_twist_coeff,
-                stretch_shear_coeff,
+            let outputs = cosserat::compute_pbd(CosseratPbdInputs {
                 length,
                 qrest,
                 g,
-                [mi, mj],
-                [moi, moj],
+                m: [mi, mj],
+                mo: [moi, moj],
                 pdiff,
-                [qi, qj],
+                q: [qi, qj],
                 qdiff,
-            );
+                bend_twist_coeff,
+                stretch_shear_coeff,
+                force_bend_twist_coeff,
+                force_stretch_shear_coeff,
+            });
 
             if let BreakingModel::Stress {
                 normal: max_normal_stress,
                 shear: max_shear_stress,
+                ..
             } = constants.breaking_model
             {
                 let normal = pdiff / current_length;
-                let normal_force = outputs.se_lin_delta.dot(normal);
-                let shear_force = (outputs.se_lin_delta - normal_force * normal).norm();
-                let twist_torque = outputs.bt_ang_delta.dot(normal);
-                let bend_torque = (outputs.bt_ang_delta - twist_torque * normal).norm();
+                let normal_force = outputs.se_lin_force.dot(normal);
+                let shear_force = (outputs.se_lin_force - normal_force * normal).norm();
+                let twist_torque = outputs.bt_ang_force.dot(normal);
+                let bend_torque = (outputs.bt_ang_force - twist_torque * normal).norm();
 
-                let normal_stress = -normal_force
+                // Can invert to make some weird elastic effects.
+                let normal_stress = normal_force
                     / (5.0_f32 / 6.0 * PI * constants.bond_radius.powi(2))
                     + bend_torque * constants.bond_radius
                         / (PI * constants.bond_radius.powi(4) / 4.0);

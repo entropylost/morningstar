@@ -17,8 +17,8 @@ mod simulation;
 use simulation::*;
 pub mod data;
 use data::*;
-mod cosserat;
-mod utils;
+pub mod cosserat;
+pub mod utils;
 
 fn install_eyre() {
     use color_eyre::config::*;
@@ -227,8 +227,6 @@ fn setup(
         last_angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
         linvel: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
         angvel: DEVICE.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
-        last_linvel: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
-        last_angvel: DEVICE.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
         bond_start: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_count),
         broken: matches!(constants.breaking_model, BreakingModel::TotalStress { .. })

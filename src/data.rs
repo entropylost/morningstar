@@ -34,6 +34,10 @@ pub enum BreakingModel {
         angle: f32,
     },
     Stress {
+        #[serde(default)]
+        young_modulus: f32,
+        #[serde(default)]
+        shear_modulus: f32,
         normal: f32,
         shear: f32,
     },
