@@ -2,20 +2,23 @@ use std::fs::File;
 
 use bevy::math::{IVec3, Vec3};
 use bevy::utils::{default, HashMap};
+use ext::Volume2d;
 use morningstar::data::*;
-use nalgebra::Vector3;
+use nalgebra::{Vector2, Vector3};
 use prism::shape::*;
 use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let volume = Cuboid::new(Vector3::new(30.0, 15.0, 30.0));
+    let scaling = 60.0;
+
+    let volume = Cuboid::new(Vector3::new(100.0, 30.0, 30.0));
 
     let points = volume.packed_points(PackedSettings {
         particle_settings: 0.5.into(),
         max_iters: 500,
         cutoff: 0.01,
-        density: 1.2,
+        density: 1.1,
     });
     println!("Iters: {}", points.iters);
     println!("Penetration: {}", points.max_penetration);
@@ -63,7 +66,7 @@ fn main() {
         }
     }
 
-    let file = File::create("table.pts").unwrap();
+    let file = File::create("largerod.pts").unwrap();
 
     ron::ser::to_writer(file, &Particles { particles, bonds }).unwrap();
 }

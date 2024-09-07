@@ -1,8 +1,7 @@
 use std::fs::File;
+use std::path::Path;
 
 use bevy::prelude::*;
-use bevy::render::settings::{PowerPreference, WgpuSettings};
-use bevy::render::RenderPlugin;
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
@@ -46,21 +45,11 @@ pub fn main() {
     install_eyre();
 
     App::new()
-        .add_plugins(
-            DefaultPlugins.set(RenderPlugin {
-                render_creation: WgpuSettings {
-                    power_preference: PowerPreference::HighPerformance, // Swap to LowPower for igpu.
-                    ..default()
-                }
-                .into(),
-                ..default()
-            }),
-        )
+        .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
         // Potentially replace with the fancy camera controller.
         .add_plugins(NoCameraPlayerPlugin)
         .init_resource::<Controls>()
-        .insert_resource(ClearColor(Color::srgb(0.6, 0.6, 0.62)))
         .insert_resource(MovementSettings {
             sensitivity: 0.00015,
             speed: 30.0,
@@ -83,10 +72,6 @@ pub fn main() {
         .run();
 }
 
-fn lv(a: Vec3) -> LVec3<f32> {
-    LVec3::new(a.x, a.y, a.z)
-}
-
 #[derive(Resource)]
 struct Palette {
     materials: Vec<Vec<Handle<StandardMaterial>>>,
@@ -97,11 +82,12 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut ambient: ResMut<AmbientLight>,
+    mut clear_color: ResMut<ClearColor>,
 ) {
     let args = std::env::args().collect::<Vec<_>>();
     let scene_name = args.get(1).cloned().unwrap_or("scene.ron".to_string());
-    let scene = ron::de::from_reader::<_, data::Scene>(File::open(scene_name).unwrap()).unwrap();
-    let scene = scene.load();
+    let scene = ron::de::from_reader::<_, data::Scene>(File::open(&scene_name).unwrap()).unwrap();
+    let scene = scene.load(Path::new(&scene_name).parent().unwrap());
     let constants = scene.constants;
 
     let mesh = meshes.add(Sphere::new(0.5));
@@ -110,19 +96,19 @@ fn setup(
     for (i, object) in scene.objects.iter().enumerate() {
         let mut object_palette = vec![];
         let base = Oklcha::from(object.color);
-        let transparent = base.alpha < 1.0;
         for i in 0..20 {
             let color = base
                 .with_lightness(
                     base.lightness
-                        + object.lightness_multiplier * (i as f32).powf(object.lightness_power),
+                        + object.lightness_multiplier
+                            * (i as f32 / 20.0).powf(object.lightness_power),
                 )
-                .with_alpha(base.alpha.lerp(1.0, i as f32 / 19.0));
+                .with_alpha(base.alpha.lerp(object.alpha_target, i as f32 / 19.0));
             let material = materials.add(StandardMaterial {
                 base_color: color.into(),
                 perceptual_roughness: 1.0,
-                alpha_mode: if transparent {
-                    AlphaMode::Blend
+                alpha_mode: if color.alpha < 1.0 {
+                    AlphaMode::AlphaToCoverage
                 } else {
                     AlphaMode::Opaque
                 },
@@ -158,9 +144,11 @@ fn setup(
     }
     commands.insert_resource(Palette { materials: palette });
 
+    clear_color.0 = constants.background_color;
     if constants.ambient_only {
         ambient.brightness = 1000.0;
     } else {
+        ambient.brightness = 200.0;
         commands.spawn(DirectionalLightBundle {
             directional_light: DirectionalLight {
                 color: Color::WHITE,
@@ -221,11 +209,11 @@ fn setup(
 
     let particles = simulation::Particles {
         domain: StaticDomain::<1>::new(l as u32),
-        linpos: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        linpos: DEVICE.create_buffer_from_fn(l, |i| particles[i].position.into()),
         angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
-        last_linpos: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        last_linpos: DEVICE.create_buffer_from_fn(l, |i| particles[i].position.into()),
         last_angpos: DEVICE.create_buffer_from_fn(l, |_i| LVec4::new(0.0, 0.0, 0.0, 1.0)),
-        linvel: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].velocity * constants.dt)),
+        linvel: DEVICE.create_buffer_from_fn(l, |i| (particles[i].velocity * constants.dt).into()),
         angvel: DEVICE.create_buffer_from_fn(l, |_i| LVec3::splat(0.0)),
         bond_start: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_start),
         bond_count: DEVICE.create_buffer_from_fn(l, |i| particles[i].bond_count),
@@ -267,6 +255,7 @@ struct Controls {
     render_visible_bonds: bool,
     render_absolute: bool,
     hide_fixed: bool,
+    hidden: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -281,11 +270,25 @@ impl Default for Controls {
             render_visible_bonds: true,
             render_absolute: false,
             hide_fixed: false,
+            hidden: false,
         }
     }
 }
 
-fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
+fn update_ui(
+    mut contexts: EguiContexts,
+    mut controls: ResMut<Controls>,
+    input: Res<ButtonInput<KeyCode>>,
+) {
+    if input.just_pressed(KeyCode::Backslash) {
+        controls.hidden = !controls.hidden;
+    }
+    if input.just_pressed(KeyCode::Enter) {
+        controls.running = !controls.running;
+    }
+    if controls.hidden {
+        return;
+    }
     egui::Window::new("Controls").show(contexts.ctx_mut(), |ui| {
         ui.checkbox(&mut controls.running, "Running");
         ui.checkbox(&mut controls.slice, "Slice");
@@ -294,19 +297,21 @@ fn update_ui(mut contexts: EguiContexts, mut controls: ResMut<Controls>) {
         );
         ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
-        ui.checkbox(&mut controls.lock, "Lock");
+        ui.checkbox(&mut controls.lock, "Lock Particles");
         ui.checkbox(&mut controls.render_hidden_bonds, "Render Hidden Bonds");
         ui.checkbox(&mut controls.render_visible_bonds, "Render Visible Bonds");
-        ui.checkbox(&mut controls.render_absolute, "Use Absolute Bond Colors");
+        ui.checkbox(&mut controls.render_absolute, "Absolute Bond Colors");
         ui.checkbox(&mut controls.hide_fixed, "Hide Fixed Particles");
     });
 }
 
+#[expect(clippy::too_many_arguments)]
 fn update_render(
     mut gizmos: Gizmos,
     controls: Res<Controls>,
     data: Res<ParticleBondData>,
     bonds: Res<Bonds>,
+    constants: Res<Constants>,
     particles: Res<simulation::Particles>,
     palette: Res<Palette>,
     mut query: Query<(
@@ -368,17 +373,19 @@ fn update_render(
             if !lock && num_bonds == 0 && controls.remove_singletons {
                 *visible = Visibility::Hidden;
             }
-            let material_index = ((1.0
+            let bond_degree = 1.0
                 - num_bonds as f32
                     / if controls.render_absolute {
                         16.0
                     } else {
                         count as f32
-                    })
-                * 19.99)
-                .clamp(0.0, 19.99)
-                .floor() as usize;
+                    };
+            let material_index = (bond_degree * 19.99).clamp(0.0, 19.99).floor() as usize;
             *material = palette.materials[particle.object as usize][material_index].clone();
+            if constants.particle_shrink != 0.0 {
+                transform.scale =
+                    Vec3::splat(1.0 - bond_degree.clamp(0.0, constants.particle_shrink));
+            }
         }
     }
 }
