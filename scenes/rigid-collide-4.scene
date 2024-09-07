@@ -1,13 +1,10 @@
 Scene(
     objects: [
         (
-            color: Srgba((red:-1.0,green:-1.0,blue:-1.0,alpha:1.0)),
             particles: "thickblock.pts",
             unfix: true,
-            // lightness_multiplier: -0.17,
-            // lightness_power: 0.5,
-            lightness_multiplier: 0.0,
-            lightness_power: 3.0,
+            lightness_multiplier: -0.17,
+            lightness_power: 0.5,
         ),
         (
             color: Srgba((red:0.1,green:0.1,blue:0.1,alpha:1.0)),
