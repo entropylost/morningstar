@@ -317,6 +317,7 @@ fn trace_kernel(
         let additional_slices = constants.additional_slices.expr();
 
         let normal = Vec3::splat(0.0).var();
+        let time = 0.0.var();
 
         dda(
             &constants,
@@ -407,6 +408,7 @@ fn trace_kernel(
                     }
                     if best_t > last_t && best_t < next_t {
                         *normal = best_normal;
+                        *time = best_t;
                         true.expr()
                     } else {
                         false.expr()
@@ -419,7 +421,7 @@ fn trace_kernel(
         let color = if (normal == Vec3::splat(0.0)).all() {
             Vec3::splat_expr(1.0).extend(1.0)
         } else {
-            Vec3::splat_expr(0.0).extend(1.0)
+            Vec3::splat_expr(time / 1000.0).extend(1.0)
         };
         data.screen
             .write(pixel.x + data.screen_domain.width() * pixel.y, color);

@@ -51,7 +51,7 @@ pub fn main() {
     install_eyre();
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .add_plugins(EguiPlugin)
         // Potentially replace with the fancy camera controller.
         .add_plugins(NoCameraPlayerPlugin)
@@ -299,7 +299,10 @@ fn setup(
     commands.insert_resource(render_data);
     let window = commands
         .spawn((Window {
-            resolution: WindowResolution::new(960.0, 540.0),
+            resolution: WindowResolution::new(
+                screen_size.x as f32 / 2.0,
+                screen_size.y as f32 / 2.0,
+            ),
             ..default()
         },))
         .id();
