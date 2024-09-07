@@ -1,5 +1,4 @@
 use bevy::render::render_asset::RenderAssetUsages;
-use bevy::winit::WinitWindows;
 use image::buffer::ConvertBuffer;
 use image::{Rgba32FImage, RgbaImage};
 use luisa::lang::types::vector::Mat3 as LMat3;
@@ -42,6 +41,7 @@ pub struct RenderData {
     // Internal bonds don't need to be checked (?) so can optimize there a bit.
     // broken_bonds: Buffer<u32>,
     pub starting_positions: Buffer<Vec3>,
+    pub active: Buffer<bool>,
 
     pub screen: Buffer<Vec4>,
     pub screen_domain: StaticDomain<2>,
@@ -55,12 +55,30 @@ pub struct RenderData {
 fn count_kernel(
     constants: Res<RenderConstants>,
     particles: Res<simulation::Particles>,
+    bonds: Res<Bonds>,
     data: Res<RenderData>,
 ) -> Kernel<fn()> {
     Kernel::build(&particles.domain, &|index| {
         if particles.mass.read(*index) == f32::INFINITY {
+            data.active.write(*index, false);
             return;
         }
+        let bond_count = particles.bond_count.read(*index);
+        let bond_start = particles.bond_start.read(*index);
+        let has_bonds = false.var();
+        for i in 0.expr()..bond_count {
+            let bond = bond_start + i;
+            if bonds.other_particle.read(bond) != u32::MAX {
+                *has_bonds = true;
+                break;
+            }
+        }
+        if !has_bonds {
+            data.active.write(*index, false);
+            return;
+        }
+
+        data.active.write(*index, true);
         let pos = particles.linpos.read(*index);
         let min = (pos / constants.grid_scale).floor().cast_i32() - 1;
         let max = (pos / constants.grid_scale).floor().cast_i32() + 2;
@@ -107,7 +125,7 @@ pub fn add_particle_kernel(
 ) -> Kernel<fn()> {
     let grid = &data.grid;
     Kernel::build(&particles.domain, &|index| {
-        if particles.mass.read(*index) == f32::INFINITY {
+        if !data.active.read(*index) {
             return;
         }
         let pos = particles.linpos.read(*index);
@@ -254,7 +272,7 @@ fn dda(
             * delta_dist;
     let side_dist = side_dist.var();
 
-    for _i in 0_u32.expr()..constants.grid_size.element_sum().expr() {
+    for _i in 0_u32.expr()..1000_u32.expr() {
         let mask = side_dist <= luisa::min(side_dist.yzx(), side_dist.zxy());
 
         let last_t = side_dist.reduce_min();
@@ -399,9 +417,9 @@ fn trace_kernel(
             },
         );
         let color = if (normal == Vec3::splat(0.0)).all() {
-            Vec4::splat_expr(0.0)
+            Vec3::splat_expr(1.0).extend(1.0)
         } else {
-            (Vec3::splat_expr(0.5) + normal * 0.5).extend(1.0)
+            Vec3::splat_expr(0.0).extend(1.0)
         };
         data.screen
             .write(pixel.x + data.screen_domain.width() * pixel.y, color);

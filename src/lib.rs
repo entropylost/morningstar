@@ -21,8 +21,8 @@ mod simulation;
 use simulation::*;
 pub mod data;
 use data::*;
-mod render;
 pub mod cosserat;
+mod render;
 pub mod utils;
 
 fn install_eyre() {
@@ -245,33 +245,35 @@ fn setup(
         next_block: DEVICE.create_buffer(1),
     };
 
+    let box_size = Vec3::new(40.0, 40.0, 10.0);
+
     let render_constants = render::RenderConstants {
         grid_size: UVec3::new(40, 40, 40),
         grid_scale: 2.0,
         max_radius: 1.0,
         additional_slices: [
             render::Slice {
-                position: LVec3::new(40.0, 0.0, 0.0),
+                position: LVec3::new(box_size.x, 0.0, 0.0),
                 normal: LVec3::new(1.0, 0.0, 0.0),
             },
             render::Slice {
-                position: LVec3::new(-40.0, 0.0, 0.0),
+                position: LVec3::new(-box_size.x, 0.0, 0.0),
                 normal: LVec3::new(-1.0, 0.0, 0.0),
             },
             render::Slice {
-                position: LVec3::new(0.0, 40.0, 0.0),
+                position: LVec3::new(0.0, box_size.y, 0.0),
                 normal: LVec3::new(0.0, 1.0, 0.0),
             },
             render::Slice {
-                position: LVec3::new(0.0, -40.0, 0.0),
+                position: LVec3::new(0.0, -box_size.y, 0.0),
                 normal: LVec3::new(0.0, -1.0, 0.0),
             },
             render::Slice {
-                position: LVec3::new(0.0, 0.0, 2.5),
+                position: LVec3::new(0.0, 0.0, box_size.z),
                 normal: LVec3::new(0.0, 0.0, 1.0),
             },
             render::Slice {
-                position: LVec3::new(0.0, 0.0, -2.5),
+                position: LVec3::new(0.0, 0.0, -box_size.z),
                 normal: LVec3::new(0.0, 0.0, -1.0),
             },
         ],
@@ -279,7 +281,8 @@ fn setup(
     let screen_size = UVec2::new(960, 540);
     let grid_size = render_constants.grid_size.element_product() as usize;
     let render_data = render::RenderData {
-        starting_positions: DEVICE.create_buffer_from_fn(l, |i| lv(particles[i].position)),
+        starting_positions: DEVICE.create_buffer_from_fn(l, |i| particles[i].position.into()),
+        active: DEVICE.create_buffer(l),
         screen: DEVICE.create_buffer((screen_size.x * screen_size.y) as usize),
         screen_domain: StaticDomain::<2>::new(screen_size.x, screen_size.y),
         grid: render::RenderGrid {
@@ -290,7 +293,7 @@ fn setup(
             particles: DEVICE.create_buffer(l * 27),
             next_block: DEVICE.create_buffer(1),
         },
-        bounds: (Vec3::new(-60.0, -60.0, -60.0), Vec3::new(60.0, 60.0, 60.0)),
+        bounds: default(),
     };
     commands.insert_resource(render_constants);
     commands.insert_resource(render_data);
@@ -444,6 +447,7 @@ fn update_render(
     constants: Res<Constants>,
     particles: Res<simulation::Particles>,
     palette: Res<Palette>,
+    mut render: ResMut<render::RenderData>,
     mut query: Query<(
         &ObjectParticle,
         &mut Transform,
@@ -459,10 +463,17 @@ fn update_render(
         controls.slice_bounds = f32::INFINITY..f32::NEG_INFINITY;
     }
 
+    render.bounds.1 = Vec3::splat(f32::NEG_INFINITY);
+    render.bounds.0 = Vec3::splat(f32::INFINITY);
+
     for (particle, mut transform, mut visible, mut material) in query.iter_mut() {
         let lock = controls.lock;
 
         let pos: Vec3 = positions[particle.index as usize].into();
+
+        render.bounds.0 = render.bounds.0.min(pos);
+        render.bounds.1 = render.bounds.1.max(pos);
+
         let sl = controls.slice.extract(pos);
         if let Some(sl) = sl {
             controls.slice_bounds.start = controls.slice_bounds.start.min(sl);
@@ -526,6 +537,9 @@ fn update_render(
             }
         }
     }
+
+    render.bounds.0 -= Vec3::splat(constants.particle_radius * 2.0);
+    render.bounds.1 += Vec3::splat(constants.particle_radius * 2.0);
 }
 
 #[derive(Debug, Resource)]
