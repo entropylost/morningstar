@@ -4,8 +4,8 @@ Scene(
             color: Srgba((red:0.5,green:0.5,blue:0.5,alpha:1.0)),
             particles: "panel2.pts",
             unfix: true,
-            // lightness_multiplier: -0.17,
-            // lightness_power: 0.5,
+            lightness_multiplier: -0.17,
+            lightness_power: 0.5,
         ),
         (
             color: Srgba((red:0.5,green:0.36,blue:0.21,alpha:1.0)),

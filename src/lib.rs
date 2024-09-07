@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::ops::Range;
 use std::path::Path;
 
 use bevy::prelude::*;
@@ -243,10 +244,29 @@ struct ObjectParticle {
     object: u32,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SliceAxis {
+    None,
+    X,
+    Y,
+    Z,
+}
+impl SliceAxis {
+    fn extract(&self, v: Vec3) -> Option<f32> {
+        match self {
+            SliceAxis::None => None,
+            SliceAxis::X => Some(v.x),
+            SliceAxis::Y => Some(v.y),
+            SliceAxis::Z => Some(v.z),
+        }
+    }
+}
+
 #[derive(Debug, Resource)]
 struct Controls {
-    slice: bool,
-    slice_position: f32,
+    slice: SliceAxis,
+    slice_position: Range<f32>,
+    slice_bounds: Range<f32>,
     running: bool,
     visualize_bonds: bool,
     remove_singletons: bool,
@@ -260,9 +280,10 @@ struct Controls {
 impl Default for Controls {
     fn default() -> Self {
         Self {
-            slice: false,
+            slice: SliceAxis::None,
             running: false,
-            slice_position: 0.0,
+            slice_position: 0.0..0.0,
+            slice_bounds: -100.0..100.0,
             visualize_bonds: false,
             remove_singletons: false,
             lock: false,
@@ -289,11 +310,30 @@ fn update_ui(
     if controls.hidden {
         return;
     }
+
+    let mut bounds = controls.slice_bounds.clone();
+    bounds.start -= 10.0;
+    bounds.end += 10.0;
+
     egui::Window::new("Controls").show(contexts.ctx_mut(), |ui| {
         ui.checkbox(&mut controls.running, "Running");
-        ui.checkbox(&mut controls.slice, "Slice");
+        ui.horizontal(|ui| {
+            ui.label("Slice");
+            ui.radio_value(&mut controls.slice, SliceAxis::None, "Off");
+            ui.radio_value(&mut controls.slice, SliceAxis::X, "X");
+            ui.radio_value(&mut controls.slice, SliceAxis::Y, "Y");
+            ui.radio_value(&mut controls.slice, SliceAxis::Z, "Z");
+        });
         ui.add(
-            egui::Slider::new(&mut controls.slice_position, -100.0..=100.0).text("Slice Position"),
+            egui::Slider::new(
+                &mut controls.slice_position.start,
+                bounds.start..=bounds.end,
+            )
+            .text("Slice Start"),
+        );
+        ui.add(
+            egui::Slider::new(&mut controls.slice_position.end, bounds.start..=bounds.end)
+                .text("Slice End"),
         );
         ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
@@ -303,12 +343,17 @@ fn update_ui(
         ui.checkbox(&mut controls.render_absolute, "Absolute Bond Colors");
         ui.checkbox(&mut controls.hide_fixed, "Hide Fixed Particles");
     });
+    if controls.slice_position.start > controls.slice_position.end {
+        let mid = (controls.slice_position.start + controls.slice_position.end) / 2.0;
+        controls.slice_position.start = mid;
+        controls.slice_position.end = mid;
+    }
 }
 
 #[expect(clippy::too_many_arguments)]
 fn update_render(
     mut gizmos: Gizmos,
-    controls: Res<Controls>,
+    mut controls: ResMut<Controls>,
     data: Res<ParticleBondData>,
     bonds: Res<Bonds>,
     constants: Res<Constants>,
@@ -325,16 +370,24 @@ fn update_render(
     let bonds = bonds.other_particle.copy_to_vec();
     let broken = particles.broken.as_ref().map(|b| b.copy_to_vec());
 
+    if controls.slice != SliceAxis::None {
+        controls.slice_bounds = f32::INFINITY..f32::NEG_INFINITY;
+    }
+
     for (particle, mut transform, mut visible, mut material) in query.iter_mut() {
         let lock = controls.lock;
 
-        let pos = positions[particle.index as usize];
-        let pos = Vec3::new(pos.x, pos.y, pos.z);
+        let pos: Vec3 = positions[particle.index as usize].into();
+        let sl = controls.slice.extract(pos);
+        if let Some(sl) = sl {
+            controls.slice_bounds.start = controls.slice_bounds.start.min(sl);
+            controls.slice_bounds.end = controls.slice_bounds.end.max(sl);
+        }
         if !lock {
-            if controls.slice && transform.translation.x > controls.slice_position {
-                *visible = Visibility::Hidden;
-            } else {
+            if sl.map_or(true, |sl| controls.slice_position.contains(&sl)) {
                 *visible = Visibility::Visible;
+            } else {
+                *visible = Visibility::Hidden;
             }
         }
         transform.translation = pos;
