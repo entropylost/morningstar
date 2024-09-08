@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use bevy::prelude::*;
+use bevy::window::WindowResolution;
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use bevy_sefirot::kernel;
@@ -25,7 +26,7 @@ fn install_eyre() {
     HookBuilder::blank()
         .capture_span_trace_by_default(true)
         .add_frame_filter(Box::new(|frames| {
-            let allowed = &["sefirot", "fracture"];
+            let allowed = &["sefirot", "morningstar"];
             frames.retain(|frame| {
                 allowed.iter().any(|f| {
                     let name = if let Some(name) = frame.name.as_ref() {
@@ -46,7 +47,13 @@ pub fn main() {
     install_eyre();
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Morningstar".to_string(),
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(EguiPlugin)
         // Potentially replace with the fancy camera controller.
         .add_plugins(NoCameraPlayerPlugin)

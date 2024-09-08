@@ -20,7 +20,7 @@ The files use the [Rusty Object Notation](https://github.com/ron-rs/ron) (RON) s
 <table align="center">
     <tr>
         <td align="center"><img src="images/glassbreak-3-anim.gif" alt="Glassbreak 3 Fracture Pattern"><a href="scenes/glassbreak-3.scene"><code>glassbreak-3</code></a> (see <a href="images/glassbreak-3-fracture.png">still</a>)</td>
-        <td align="center"><img src="images/rigid-collide-4-side.png" alt="Rigid Collide 4 Side View"><a href="scenes/rigid-collide-4.scene"><code>rigid-collide-4</code></a> (side)</td>
+        <td align="center"><img src="images/rigid-collide-4-side.png" alt="Rigid Collide 4 Side View"><a href="scenes/rigid-collide-4.scene"><code>rigid-collide-4</code></a> (side, <a href="images/rigid-collide-4-video-redirect.md">video</a>)</td>
         <td align="center"><a href="images/glassbreak-large-front.png"><img src="images/glassbreak-large-front-50.png" alt="Glassbreak Large Front Fracture (downscaled)"></a><a href="scenes/glassbreak-large.scene"><code>glassbreak-large</code></a> (front)</td>
     </tr>
     <tr>
