@@ -1,27 +1,27 @@
 Scene(
     objects: [
         (
-            color: Srgba((red:-1.0,green:-1.0,blue:-1.0,alpha:1.0)),
+            // color: Srgba((red:-1.0,green:-1.0,blue:-1.0,alpha:1.0)),
             particles: "prismpanel.pts",
             unfix: true,
-            lightness_multiplier: 15.0,
-            lightness_power: 3.0,
+            // lightness_multiplier: 15.0,
+            // lightness_power: 3.0,
         ),
         (
             color: Srgba((red:0.1,green:0.1,blue:0.1,alpha:1.0)),
             particles: "largeball.pts",
             position: (0.0, 40.0, 15.0),
-            velocity: (0.0, 0.0, -1.0),
+            velocity: (0.0, 1.0, -1.0),
             mass: inf,
         ),
     ],
     constants: (
-        background_color: Srgba((red:0.1,green:0.1,blue:0.1,alpha:1.0)),
+        // background_color: Srgba((red:0.1,green:0.1,blue:0.1,alpha:1.0)),
         ambient_only: true,
         dt: 0.016,
         substeps: 20,
         breaking_model: Distance(
-            max: 1.00007,
+            max: 1.0001,
         ),
         // breaking_model: Stress(
         //     normal: 2e-4,

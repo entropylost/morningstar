@@ -282,7 +282,7 @@ impl Default for Controls {
         Self {
             slice: SliceAxis::None,
             running: false,
-            slice_position: 0.0..0.0,
+            slice_position: -100.0..0.0,
             slice_bounds: -100.0..100.0,
             visualize_bonds: false,
             remove_singletons: false,
@@ -329,11 +329,13 @@ fn update_ui(
                 &mut controls.slice_position.start,
                 bounds.start..=bounds.end,
             )
-            .text("Slice Start"),
+            .text("Slice Start")
+            .clamp_to_range(false),
         );
         ui.add(
             egui::Slider::new(&mut controls.slice_position.end, bounds.start..=bounds.end)
-                .text("Slice End"),
+                .text("Slice End")
+                .clamp_to_range(false),
         );
         ui.checkbox(&mut controls.visualize_bonds, "Render Bonds");
         ui.checkbox(&mut controls.remove_singletons, "Remove Single Particles");
@@ -347,6 +349,12 @@ fn update_ui(
         let mid = (controls.slice_position.start + controls.slice_position.end) / 2.0;
         controls.slice_position.start = mid;
         controls.slice_position.end = mid;
+    }
+    if controls.slice_position.start == bounds.start {
+        controls.slice_position.start = -f32::INFINITY;
+    }
+    if controls.slice_position.end == bounds.end {
+        controls.slice_position.end = f32::INFINITY;
     }
 }
 

@@ -1004,6 +1004,7 @@ dependencies = [
 [[package]]
 name = "bevy_sefirot"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "bevy",
  "bevy_sefirot_macro",
@@ -1016,6 +1017,7 @@ dependencies = [
 [[package]]
 name = "bevy_sefirot_macro"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1830,6 +1832,7 @@ dependencies = [
 [[package]]
 name = "cuda_device_sys"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "bindgen",
 ]
@@ -2560,6 +2563,7 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 [[package]]
 name = "id_newtype"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3806,6 +3810,7 @@ dependencies = [
 [[package]]
 name = "prism"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/prism#1afff9e4b4e7484dfc530163d5d4f11e6e6120e3"
 dependencies = [
  "nalgebra",
  "rand",
@@ -4160,6 +4165,7 @@ dependencies = [
 [[package]]
 name = "sefirot"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "bevy_ecs",
  "cuda_device_sys",
@@ -4182,6 +4188,7 @@ dependencies = [
 [[package]]
 name = "sefirot_grid"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "parking_lot",
  "sefirot",
@@ -4190,6 +4197,7 @@ dependencies = [
 [[package]]
 name = "sefirot_macro"
 version = "0.1.0"
+source = "git+https://github.com/entropylost/sefirot#165cdcaaac2f276060ecc5f885a91b28a1a3f29d"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",

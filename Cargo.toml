@@ -9,15 +9,15 @@ nalgebra = { version = "0.33.0", features = [
     "convert-glam028",
     "convert-glam027",
 ] }
-prism = { path = "../prism" }
+prism = { git = "https://github.com/entropylost/prism" }
 color-eyre = "0.6.2"
-sefirot = { path = "../sefirot/sefirot", features = [
+sefirot = { git = "https://github.com/entropylost/sefirot", features = [
     "bevy",
     "glam",
     "nalgebra",
 ] }
-sefirot_grid = { path = "../sefirot/sefirot_grid" }
-bevy_sefirot = { path = "../sefirot/bevy_sefirot" }
+sefirot_grid = { git = "https://github.com/entropylost/sefirot" }
+bevy_sefirot = { git = "https://github.com/entropylost/sefirot" }
 bevy_egui = "0.29.0"
 egui = "0.28.1"
 bevy_flycam = "0.14.1"

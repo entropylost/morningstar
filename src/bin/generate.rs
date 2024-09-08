@@ -2,16 +2,13 @@ use std::fs::File;
 
 use bevy::math::{IVec3, Vec3};
 use bevy::utils::{default, HashMap};
-use ext::Volume2d;
 use morningstar::data::*;
-use nalgebra::{Vector2, Vector3};
+use nalgebra::Vector3;
 use prism::shape::*;
 use prism::*;
 use smallvec::SmallVec;
 
 fn main() {
-    let scaling = 60.0;
-
     let volume = Cuboid::new(Vector3::new(100.0, 100.0, 2.5));
 
     let points = volume.packed_points(PackedSettings {
@@ -50,7 +47,7 @@ fn main() {
                     let ix = ix + IVec3::new(x, y, z);
                     if let Some(neighbors) = grid.get(&ix) {
                         for &(n, pos) in neighbors {
-                            if n != i as u32 && ((pos - p.position) / Vec3::new(1.2, 0.5, 1.0)).length() < bond_radius {
+                            if n != i as u32 && (pos - p.position).length() < bond_radius {
                                 bonds.push(Bond { other_particle: n });
                                 p.bond_count += 1;
                             }
@@ -66,7 +63,7 @@ fn main() {
         }
     }
 
-    let file = File::create("scenes/panel-big-aniso.pts").unwrap();
+    let file = File::create("scenes/panel-big.pts").unwrap();
 
     ron::ser::to_writer(file, &Particles { particles, bonds }).unwrap();
 }
