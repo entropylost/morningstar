@@ -10,12 +10,17 @@ Install [Rust](https://www.rust-lang.org/tools/install), clone this repository, 
 
 ## Usage
 
-To launch the program, execute `cargo r --release scenes/glassbreak-3.scene`. When running, the keys `WASD[Space][Shift]` can be used to move the camera, and the mouse will rotate the camera, togglable via `[Esc]`. The key `\` will toggle the controls display, and `[Enter]` will run/pause the simulation.
+To launch the program, execute `cargo r --release scenes/glassbreak-3.scene`. When running, the keys `WASD[Space][Shift]` can be used to move the camera, and the mouse will rotate the camera, togglable via `[Esc]`. The key `\` toggles the controls display, and `[Enter]` pauses the simulation.
 
 The files use the [Rusty Object Notation](https://github.com/ron-rs/ron) (RON) serialization format, with files ending in the `.scene` extension used to describe loadable scenes, and `.pts` to describe sets of points which can be referenced by objects in the scenes. The parameters used for the objects and constants can be seen in [`src/data.rs`](src/data.rs), as well as the default values. [`src/bin/generate.rs`](src/bin/generate.rs) also shows an example program that can be used to generate a `.pts` file.
 
-## Gallery
+## Performance
 
+I could not get a demo application for RBDEM, so this is based on the estimations within the paper: In [their video](http://ren-bo.net/Videos/zkr_gmod2024.mp4), the "Thick Plate" scene takes 14.06 seconds per frame on a 1080 Ti for 119 frames, which is 27.8 minutes of simulation time. Meanwhile, in `rigid-collide-4`, a similar simulation executes in real-time on a 3080 Laptop GPU over the course of 6.7 seconds. According to [a GPU compute benchmark](https://www.videocardbenchmark.net/directCompute.html), the 1080 Ti and 3080 Laptop have scores of 9627 and 8459 respectively which are close enough for comparison purposes (although given that the 5090 D has a higher score than the 5090 it may be somewhat erroneous). So, by these metrics, the implementation here is about **250x** faster than the version in the paper.
+
+However, the validity of this logic is debatable, as the `rigid-collide-4` scene looks somewhat worse than the reference.
+
+## Gallery
 
 <table align="center">
     <tr>
